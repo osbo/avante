@@ -10,8 +10,8 @@ import SwiftUI
 @main
 struct avanteApp: App {
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        DocumentGroup(newDocument: AvanteDocument()) { file in
+            EditView(document: file.$document)
         }
     }
 }
