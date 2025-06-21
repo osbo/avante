@@ -6,28 +6,47 @@
 //
 
 import SwiftUI
-import UniformTypeIdentifiers
+import Combine
 
-struct AvanteDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.vnt] }
-    
+struct AvanteFile: Codable, Equatable {
     var text: String
+    var analysis: [AnalysisMetric]
+}
+
+struct AnalysisMetric: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var chunk: String
+    var value: Double
+    var type: MetricType
+}
+
+class AvanteDocument: ObservableObject {
+    @Published var file: AvanteFile
     
-    init(initText: String = "") {
-        self.text = initText
-    }
+    private let url: URL
     
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents,
-              let string = String(data: data, encoding: .utf8)
-        else {
-            throw CocoaError(.fileReadCorruptFile)
+    init(url: URL) {
+        self.url = url
+        
+        do {
+            let data = try Data(contentsOf: url)
+            self.file = try JSONDecoder().decode(AvanteFile.self, from: data)
+            print("Successfully loaded file from \(url.lastPathComponent)")
+        } catch {
+            print("Could not load file, creating a new one. Error: \(error)")
+            self.file = AvanteFile(text: "", analysis: [])
         }
-        text = string
     }
     
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        let data = Data(text.utf8)
-        return .init(regularFileWithContents: data)
+    func save() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting =  .prettyPrinted
+            let data = try encoder.encode(file)
+            try data.write(to: url, options: .atomic)
+            print("File saved successfully to \(url.lastPathComponent)")
+        } catch {
+            print("Failed to save file. Error : \(error)")
+        }
     }
 }

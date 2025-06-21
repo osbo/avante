@@ -1,0 +1,11 @@
+{
+  "analysis" : [
+    {
+      "id" : "845438A7-C128-4810-918B-7FB68153DA02",
+      "value" : 0.65,
+      "type" : "predictability",
+      "chunk" : "Test. K"
+    }
+  ],
+  "text" : "Test"
+}

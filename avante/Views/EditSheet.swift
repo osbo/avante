@@ -24,7 +24,7 @@ struct EditSheet: View {
                     VStack {
                         Text(text)
                             .font(.system(.body, design: .serif, weight: .regular))
-                            .foregroundStyle(Color.brandDarkBlue)
+                            .foregroundStyle(.primary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 50)
@@ -44,8 +44,8 @@ struct DismissButton: View {
             Image(systemName: "xmark")
                 .font(.system(size: 10, weight: .bold, design: .rounded))
                 .frame(width: 20, height: 20)
-                .foregroundColor(Color.brandLightBlue)
-                .background(Color.brandDarkBlue)
+                .foregroundColor(.white)
+                .background(.gray)
                 .cornerRadius(26)
         }
     }

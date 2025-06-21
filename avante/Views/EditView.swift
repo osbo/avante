@@ -8,33 +8,24 @@
 import SwiftUI
 
 struct EditView: View {
-    @Binding var document: AvanteDocument
-    @State private var isShowingSheet = false
-    @FocusState private var isFocused: Bool
+    @ObservedObject var viewModel: AnalysisViewModel
     
     var body: some View {
-        VStack {
-            TextEditor(text: $document.text)
-                .font(.title)
-                .textEditorStyle(.plain)
-                .scrollIndicators(.never)
-                .onAppear {
-                    self.isFocused = true
-                }
-                .focused($isFocused)
-        }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 20)
-        .background(.gray)
-        .scrollClipDisabled()
-        .clipShape(RoundedRectangle(cornerRadius: 13))
-        .shadow(color: .black.opacity(0.2), radius: 5)
-        .padding(.horizontal, 30)
-        .frame(maxWidth: .infinity)
-        .padding()
+        TextEditor(text: $viewModel.document.file.text)
+            .font(.system(.body, design:.serif))
+            .lineSpacing(8)
+            .padding(.horizontal, 60)
+            .padding(.vertical, 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollClipDisabled()
+            .onChange(of: viewModel.document.file.text) { oldValue, newValue in
+                viewModel.textDidChange()
+                viewModel.document.save()
+            }
+        
+            .onReceive(NotificationCenter.default.publisher(for: .saveAction)) { _ in
+                print("Save command received. Saving document.")
+                viewModel.document.save()
+            }
     }
-}
-
-#Preview {
-    EditView(document: .constant(AvanteDocument()))
 }

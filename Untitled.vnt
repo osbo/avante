@@ -1,0 +1,65 @@
+{
+  "analysis" : [
+    {
+      "chunk" : "G",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "BC41FD7C-3226-406B-8A67-005FC1F45177"
+    },
+    {
+      "chunk" : "Hello world.",
+      "value" : 0.5,
+      "type" : "predictability",
+      "id" : "785CF547-0DF2-4321-9500-95D31B8EF012"
+    },
+    {
+      "chunk" : "Hello world. He",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "42A3551E-0B28-4A29-B0E4-5DE464C4B55C"
+    },
+    {
+      "chunk" : "Hello world. Her",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "9310094C-99F4-4CB3-BABF-00DB07FE07FE"
+    },
+    {
+      "chunk" : "Hello world. Here ",
+      "value" : 0.5,
+      "type" : "predictability",
+      "id" : "31F9DC04-2DA2-4794-8126-40CAB333D667"
+    },
+    {
+      "chunk" : "Hello world. Here is ",
+      "value" : 0.75,
+      "type" : "predictability",
+      "id" : "6DF26926-04AD-406C-B1DD-D8E9A1B7CC80"
+    },
+    {
+      "chunk" : "Hello world. Here is a",
+      "value" : 0.55,
+      "type" : "predictability",
+      "id" : "FD7BB39E-4446-4C96-88C1-9FE36F93843F"
+    },
+    {
+      "chunk" : "Hello world. Here is an",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "10A571CD-30E4-43FD-87E1-8F1837BEB690"
+    },
+    {
+      "chunk" : "Hello world. Here is anot",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "B70EF17D-D303-44B0-9D18-EAE906FB7ECF"
+    },
+    {
+      "chunk" : "Hello world. Here is anoth",
+      "value" : 0.65,
+      "type" : "predictability",
+      "id" : "430C8234-D411-4EF3-B989-89AE48238918"
+    }
+  ],
+  "text" : "Hello world. Here is another sentence"
+}
