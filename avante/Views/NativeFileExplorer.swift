@@ -8,39 +8,64 @@
 import SwiftUI
 import AppKit
 
-fileprivate class FileExplorerHostingView: NSHostingView<FileItemView> {
-    weak var outlineView: NSOutlineView?
-    var row: Int = -1
-    
-    override func menu(for event: NSEvent) -> NSMenu? {
-        guard let coordinator = self.outlineView?.delegate as? NativeFileExplorer.Coordinator else {
-            return super.menu(for: event)
+fileprivate class FileCellView: NSTableCellView {
+    let nameTextField = NSTextField(labelWithString: "")
+    let iconImageView = NSImageView()
+    private let stackView = NSStackView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        
+        iconImageView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        nameTextField.isBezeled = false
+        nameTextField.drawsBackground = false
+        nameTextField.isEditable = false
+        nameTextField.cell?.truncatesLastVisibleLine = true
+        nameTextField.lineBreakMode = .byTruncatingTail
+        
+        stackView.orientation = .horizontal
+        stackView.alignment = .centerY
+        stackView.spacing = 6
+        
+        stackView.addArrangedSubview(iconImageView)
+        stackView.addArrangedSubview(nameTextField)
+        addSubview(stackView)
+        
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stackView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(for item: FileItem) {
+        if item.isFolder {
+            iconImageView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
+            iconImageView.contentTintColor = .secondaryLabelColor
+            nameTextField.stringValue = item.name
+        } else {
+            iconImageView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: "Document")
+            iconImageView.contentTintColor = .controlAccentColor
+            nameTextField.stringValue = item.url.deletingPathExtension().lastPathComponent
         }
-        return coordinator.menu(forRow: self.row)
+    }
+    
+    func beginEditing() {
+        nameTextField.isEditable = true
+        window?.makeFirstResponder(nameTextField)
+        nameTextField.currentEditor()?.selectAll(nil)
     }
 }
 
 fileprivate class CustomOutlineView: NSOutlineView {
-    override var acceptsFirstResponder: Bool {
-        return true
-    }
-    
-    override func keyDown(with event: NSEvent) {
-        // Check for Return (36) or Enter on the numpad (76)
-        if event.keyCode == 36 || event.keyCode == 76 {
-            if selectedRow != -1 {
-                // If a row is selected, perform the double-click action.
-                // The target/action is set up in makeNSView.
-                if let target = self.target, let action = self.doubleAction {
-                    target.perform(action, with: self)
-                }
-                // We've handled the event, so we return to prevent the "donk" sound.
-                return
-            }
-        }
-        
-        // For all other keys (like arrows), use the default AppKit behavior.
-        super.keyDown(with: event)
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = self.convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        if row >= 0 && !self.isRowSelected(row) { self.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        return super.menu(for: event)
     }
 }
 
@@ -48,267 +73,222 @@ struct NativeFileExplorer: NSViewRepresentable {
     @ObservedObject var workspace: WorkspaceViewModel
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        let outlineView = CustomOutlineView()
-        
-        outlineView.dataSource = context.coordinator
-        outlineView.delegate = context.coordinator
-        outlineView.headerView = nil
-        outlineView.style = .sourceList
-        outlineView.floatsGroupRows = false
-
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("column"))
-        outlineView.addTableColumn(column)
-        outlineView.outlineTableColumn = column
-        outlineView.target = context.coordinator
-        outlineView.doubleAction = #selector(context.coordinator.doubleClickAction)
-        
-        scrollView.documentView = outlineView
-        scrollView.hasVerticalScroller = true
-        scrollView.borderType = .noBorder
-
+        // ... (This function remains the same)
+        let scrollView = NSScrollView(); let outlineView = CustomOutlineView()
+        outlineView.dataSource = context.coordinator; outlineView.delegate = context.coordinator
+        outlineView.headerView = nil; outlineView.style = .sourceList; outlineView.floatsGroupRows = false; outlineView.rowHeight = 28
+        let column = NSTableColumn(identifier: .init("column")); outlineView.addTableColumn(column); outlineView.outlineTableColumn = column
+        outlineView.target = context.coordinator; outlineView.doubleAction = #selector(Coordinator.doubleClickAction)
+        let menu = NSMenu(); menu.delegate = context.coordinator; outlineView.menu = menu
+        scrollView.documentView = outlineView; scrollView.hasVerticalScroller = true; scrollView.borderType = .noBorder
         context.coordinator.outlineView = outlineView
-        
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let outlineView = nsView.documentView as? NSOutlineView else { return }
         context.coordinator.workspace = workspace
         
-        guard let outlineView = nsView.documentView as? NSOutlineView else { return }
-
-        // Only reload data if the fileTree has actually been replaced
-        if context.coordinator.lastFileTreeObjectID != ObjectIdentifier(workspace.fileTree as AnyObject) {
+        // FIX: The update logic is now much simpler and more robust.
+        
+        // 1. Check for a pending insertion event.
+        if let insertion = workspace.pendingInsertion {
+            // Immediately clear the flag to acknowledge the event.
+            workspace.pendingInsertion = nil
+            // Delegate the entire complex operation to the coordinator.
+            context.coordinator.performInsertAndRename(for: insertion.item, in: insertion.parent, in: outlineView)
+        } else {
+            // 2. For all other updates, just reload and sync.
             outlineView.reloadData()
-            context.coordinator.lastFileTreeObjectID = ObjectIdentifier(workspace.fileTree as AnyObject)
-        }
-
-        // Restore expansion state
-        context.coordinator.expandItems(in: outlineView)
-        
-        // Restore selection
-        if let selectedItem = context.coordinator.workspace.selectedItem,
-           let row = context.coordinator.row(forItem: selectedItem, in: outlineView) {
-            context.coordinator.isProgrammaticSelection = true
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            context.coordinator.isProgrammaticSelection = false
+            context.coordinator.syncSelectionAndExpansion(in: outlineView)
         }
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(workspace: workspace)
-    }
-
-    class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
+    
+    class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate, NSMenuDelegate {
         var workspace: WorkspaceViewModel
-        var outlineView: NSOutlineView?
-        var isProgrammaticSelection = false
-        var lastFileTreeObjectID: ObjectIdentifier?
+        weak var outlineView: NSOutlineView?
+        private var itemBeingEdited: FileItem?
 
-        init(workspace: WorkspaceViewModel) {
-            self.workspace = workspace
-        }
+        init(workspace: WorkspaceViewModel) { self.workspace = workspace }
         
-        // Find the row for a given URL (recursively) - this is a simplified stub
-        func row(forItem item: FileItem, in outlineView: NSOutlineView) -> Int? {
-            // A full implementation requires mapping the tree to flat rows.
-            // For this specific use case, we can use the outline view's own method.
+        // MARK: - Core UI Choreography
+        
+        // FIX: This new function handles the entire create-and-rename flow imperatively.
+        func performInsertAndRename(for item: FileItem, in parent: FileItem, in outlineView: NSOutlineView) {
+            // 1. Update the data model first.
+            parent.children?.append(item)
+            parent.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
+            
+            // 2. Find the item's new index in the sorted array.
+            guard let insertionIndex = parent.children?.firstIndex(of: item) else { return }
+
+            // 3. Animate the insertion in the UI.
+            outlineView.insertItems(at: IndexSet(integer: insertionIndex), inParent: parent, withAnimation: .effectGap)
+            
+            // 4. Select the new row.
             let row = outlineView.row(forItem: item)
-            return row == -1 ? nil : row
+            guard row != -1 else { return }
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            
+            // 5. Scroll to make it visible.
+            outlineView.scrollRowToVisible(row)
+            
+            // 6. Finally, begin editing.
+            beginEditing(item: item, in: outlineView)
         }
 
-        func expandItems(in outlineView: NSOutlineView, for items: [FileItem]? = nil) {
-            let itemsToScan = items ?? workspace.fileTree
-            for item in itemsToScan {
-                if item.isExpanded {
-                    outlineView.expandItem(item)
-                    if let children = item.children {
-                        expandItems(in: outlineView, for: children)
-                    }
-                }
+        func beginEditing(item: FileItem, in outlineView: NSOutlineView) {
+            let row = outlineView.row(forItem: item)
+            guard row != -1 else { return }
+            if let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileCellView {
+                cell.beginEditing()
             }
         }
         
+        // MARK: - Data Source
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            if let fileItem = item as? FileItem {
-                return fileItem.children?.count ?? 0
-            }
-            return workspace.fileTree.count
+            guard let fileItem = item as? FileItem else { return workspace.rootItem?.children?.count ?? 0 }
+            return fileItem.children?.count ?? 0
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            if let fileItem = item as? FileItem {
-                return fileItem.children![index]
-            }
-            return workspace.fileTree[index]
+            guard let fileItem = item as? FileItem else { return workspace.rootItem!.children![index] }
+            return fileItem.children![index]
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
             (item as? FileItem)?.isFolder ?? false
         }
         
+        // MARK: - Delegate
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let fileItem = item as? FileItem else { return nil }
-
-            let identifier = NSUserInterfaceItemIdentifier("FileItemCell")
-            let view: FileExplorerHostingView
-            
-            if let recycledView = outlineView.makeView(withIdentifier: identifier, owner: self) as? FileExplorerHostingView {
-                view = recycledView
-                view.rootView = FileItemView(item: fileItem) { newName in
-                    self.workspace.renameItem(fileItem, to: newName)
-                }
-            } else {
-                view = FileExplorerHostingView(rootView:
-                    FileItemView(item: fileItem) { newName in
-                        self.workspace.renameItem(fileItem, to: newName)
-                    }
-                )
-                view.identifier = identifier
-            }
-
-            view.sizingOptions = .intrinsicContentSize
-            view.outlineView = outlineView
-            view.row = outlineView.row(forItem: item)
-            
-            return view
-        }
-        
-        func outlineViewItemWillExpand(_ notification: Notification) {
-            if let fileItem = notification.userInfo?["NSObject"] as? FileItem {
-                workspace.loadChildren(for: fileItem)
-                workspace.expandedItemIDs.insert(fileItem.id)
-                fileItem.isExpanded = true
-            }
-        }
-        
-        func outlineViewItemDidExpand(_ notification: Notification) {
-            // Select the item that was just expanded
-            if let fileItem = notification.userInfo?["NSObject"] as? FileItem, let outlineView = self.outlineView {
-                let row = outlineView.row(forItem: fileItem)
-                if row != -1 {
-                    isProgrammaticSelection = true
-                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                    // Manually update the view model's selection since this is programmatic
-                    workspace.selectedItem = fileItem
-                    isProgrammaticSelection = false
-                }
-            }
-        }
-        
-        func outlineViewItemDidCollapse(_ notification: Notification) {
-            if let fileItem = notification.userInfo?["NSObject"] as? FileItem {
-                workspace.expandedItemIDs.remove(fileItem.id)
-                fileItem.isExpanded = false
-
-                // Select the item that was just collapsed
-                if let outlineView = self.outlineView {
-                    let row = outlineView.row(forItem: fileItem)
-                    if row != -1 {
-                        isProgrammaticSelection = true
-                        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                        workspace.selectedItem = fileItem
-                        isProgrammaticSelection = false
-                    }
-                }
-            }
+            let id = NSUserInterfaceItemIdentifier("FileCell")
+            let cellView = outlineView.makeView(withIdentifier: id, owner: self) as? FileCellView ?? FileCellView()
+            cellView.identifier = id
+            cellView.configure(for: fileItem)
+            cellView.nameTextField.delegate = self
+            return cellView
         }
         
         func outlineViewSelectionDidChange(_ notification: Notification) {
-            if isProgrammaticSelection { return }
-
-            guard let outlineView = notification.object as? NSOutlineView else { return }
+            guard let outlineView = notification.object as? NSOutlineView,
+                  // Prevent this from firing when we are programmatically setting selection
+                  outlineView.window?.firstResponder == outlineView else { return }
             
             let selectedIndex = outlineView.selectedRow
-            if selectedIndex != -1, let item = outlineView.item(atRow: selectedIndex) as? FileItem {
-                workspace.selectedItem = item
-            } else {
-                workspace.selectedItem = nil
-            }
-        }
-        
-        func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            return 28
-        }
-        
-        func menu(forRow row: Int) -> NSMenu? {
-            // Select the row that was right-clicked, if it's not already selected.
-            if row >= 0, let outlineView = self.outlineView, outlineView.selectedRow != row {
-                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            }
-
-            let menu = NSMenu()
-            
-            let item = row >= 0 ? outlineView?.item(atRow: row) as? FileItem : nil
-            
-            let newFileItem = NSMenuItem(title: "New File", action: #selector(newFileAction(_:)), keyEquivalent: "")
-            newFileItem.representedObject = item
-            newFileItem.target = self
-            menu.addItem(newFileItem)
-            
-            let newFolderItem = NSMenuItem(title: "New Folder", action: #selector(newFolderAction(_:)), keyEquivalent: "")
-            newFolderItem.representedObject = item
-            newFolderItem.target = self
-            menu.addItem(newFolderItem)
-            
-            if item != nil {
-                menu.addItem(.separator())
-                
-                let renameItem = NSMenuItem(title: "Rename", action: #selector(renameAction(_:)), keyEquivalent: "")
-                renameItem.representedObject = item
-                renameItem.target = self
-                menu.addItem(renameItem)
-
-                let deleteItem = NSMenuItem(title: "Delete", action: #selector(deleteAction(_:)), keyEquivalent: "")
-                deleteItem.representedObject = item
-                deleteItem.target = self
-                menu.addItem(deleteItem)
-            }
-            
-            return menu
-        }
-
-        @objc func newFileAction(_ sender: NSMenuItem) {
-            let item = sender.representedObject as? FileItem
-            workspace.createNewFile(in: item)
-        }
-
-        @objc func newFolderAction(_ sender: NSMenuItem) {
-            let item = sender.representedObject as? FileItem
-            workspace.createNewFolder(in: item)
-        }
-        
-        @objc func renameAction(_ sender: NSMenuItem) {
-            if let item = sender.representedObject as? FileItem {
-                item.isRenaming = true
-            }
-        }
-        
-        @objc func deleteAction(_ sender: NSMenuItem) {
-            if let item = sender.representedObject as? FileItem {
-                // You might want to show a confirmation alert here
-                workspace.deleteItem(item)
-            }
-        }
-        
-        @objc func doubleClickAction(_ sender: Any?) {
-            guard let outlineView = sender as? NSOutlineView,
-                  outlineView.selectedRow >= 0 else { return }
-            
-            let item = outlineView.item(atRow: outlineView.selectedRow)
-            
-            if let fileItem = item as? FileItem {
-                if fileItem.isFolder {
-                    if outlineView.isItemExpanded(fileItem) {
-                        outlineView.collapseItem(fileItem)
-                    } else {
-                        workspace.loadChildren(for: fileItem)
-                        outlineView.expandItem(fileItem)
-                    }
+            DispatchQueue.main.async {
+                if selectedIndex != -1, let item = outlineView.item(atRow: selectedIndex) as? FileItem {
+                    if self.workspace.selectedItem != item { self.workspace.selectedItem = item }
                 } else {
-                    workspace.selectedFileUrl = fileItem.id
+                    if self.workspace.selectedItem != nil { self.workspace.selectedItem = nil }
                 }
             }
         }
+
+        func outlineViewItemDidExpand(_ notification: Notification) {
+            if let item = notification.userInfo?["NSObject"] as? FileItem, !item.isExpanded { workspace.toggleExpansion(for: item) }
+        }
+
+        func outlineViewItemDidCollapse(_ notification: Notification) {
+            if let item = notification.userInfo?["NSObject"] as? FileItem, item.isExpanded { workspace.toggleExpansion(for: item) }
+        }
+        
+        @objc func doubleClickAction(_ sender: Any?) {
+            guard let outlineView = self.outlineView, let item = outlineView.item(atRow: outlineView.clickedRow) as? FileItem else { return }
+            if item.isFolder { workspace.toggleExpansion(for: item) }
+            else { workspace.selectedItem = item }
+        }
+
+        // MARK: - Renaming Logic
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            // This function is now correctly protected by the viewState logic.
+            guard let textField = obj.object as? NSTextField,
+                  let cell = textField.superview?.superview as? FileCellView,
+                  let outlineView = self.outlineView,
+                  let item = outlineView.item(atRow: outlineView.row(for: cell)) as? FileItem else { return }
+            self.itemBeingEdited = item
+        }
+        
+        func controlTextDidEndEditing(_ obj: Notification) {
+            // This correctly resets the state machine to idle after ANY edit.
+            guard let textField = obj.object as? NSTextField, let item = self.itemBeingEdited else {
+                return
+            }
+            
+            textField.isEditable = false
+            let newBaseName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if !newBaseName.isEmpty {
+                let currentName = item.url.deletingPathExtension().lastPathComponent
+                if newBaseName != currentName {
+                    let ext = item.url.pathExtension
+                    let finalName = ext.isEmpty ? newBaseName : "\(newBaseName).\(ext)"
+                    workspace.renameItem(item, to: finalName)
+                }
+            } else {
+                 outlineView?.reloadItem(item, reloadChildren: false)
+            }
+            self.itemBeingEdited = nil
+        }
+        
+        // MARK: - Context Menu
+        @objc func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            guard let outlineView = self.outlineView else { return }
+            let clickedItem = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileItem : nil
+            var parentForNewItem: FileItem?
+            if let clickedItem = clickedItem { parentForNewItem = clickedItem.isFolder ? clickedItem : clickedItem.parent }
+            else { parentForNewItem = workspace.rootItem }
+
+            let newFile = NSMenuItem(title: "New File", action: #selector(newFileAction), keyEquivalent: "")
+            newFile.representedObject = parentForNewItem; newFile.target = self; menu.addItem(newFile)
+            
+            let newFolder = NSMenuItem(title: "New Folder", action: #selector(newFolderAction), keyEquivalent: "")
+            newFolder.representedObject = parentForNewItem; newFolder.target = self; menu.addItem(newFolder)
+
+            if let clickedItem = clickedItem {
+                menu.addItem(.separator())
+                let rename = NSMenuItem(title: "Rename", action: #selector(renameAction), keyEquivalent: "")
+                rename.representedObject = clickedItem; rename.target = self; menu.addItem(rename)
+                let delete = NSMenuItem(title: "Delete", action: #selector(deleteAction), keyEquivalent: "")
+                delete.representedObject = clickedItem; delete.target = self; menu.addItem(delete)
+            }
+        }
+        
+        @objc func newFileAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFile(in: p) } }
+        @objc func newFolderAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFolder(in: p) } }
+        @objc func renameAction(_ sender: Any?) {
+            if let item = (sender as? NSMenuItem)?.representedObject as? FileItem, let outlineView = self.outlineView {
+                // We don't need a state machine anymore because the update logic is safer.
+                beginEditing(item: item, in: outlineView)
+            }
+        }
+        @objc func deleteAction(_ sender: Any?) { if let i = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.deleteItem(i) } }
+        
+        // MARK: - Sync Logic
+        func syncSelectionAndExpansion(in outlineView: NSOutlineView) {
+            func expand(items: [FileItem]) {
+                for item in items {
+                    if item.isExpanded {
+                        outlineView.expandItem(item, expandChildren: false)
+                        if let children = item.children { expand(items: children) }
+                    }
+                }
+            }
+            if let rootChildren = workspace.rootItem?.children { expand(items: rootChildren) }
+            
+            if let selectedItem = workspace.selectedItem {
+                let row = outlineView.row(forItem: selectedItem)
+                if row != -1 && !outlineView.isRowSelected(row) {
+                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    outlineView.scrollRowToVisible(row)
+                }
+            } else {
+                outlineView.deselectAll(nil)
+            }
+        }
     }
-} 
+}

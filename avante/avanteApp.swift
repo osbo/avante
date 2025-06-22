@@ -15,18 +15,25 @@ struct avanteApp: App {
         WindowGroup {
             ContentView(workspace: workspace)
                 .onOpenURL { url in
-                    workspace.openFile(url)
+                    // FIX: The method was renamed from 'openFile' to 'open'.
+                    // This is the corrected method call.
+                    workspace.open(url: url)
                 }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            // This CommandGroup replaces the default "File > New" (Cmd+N) menu item.
             CommandGroup(replacing: .newItem) {
+                // We point it to our custom open function instead.
                 Button("Open...") {
-                    workspace.openAnyFile()
+                    workspace.openFileOrFolder()
                 }
                 .keyboardShortcut("o", modifiers: .command)
             }
+            // This CommandGroup replaces the default "File > Save" (Cmd+S) menu item.
             CommandGroup(replacing: .saveItem) {
+                // It posts a notification, which the EditView listens for.
+                // This decouples the App scene from the specific view doing the saving.
                 Button("Save") {
                     NotificationCenter.default.post(name: .saveAction, object: nil)
                 }
@@ -36,6 +43,7 @@ struct avanteApp: App {
     }
 }
 
+// Defines a custom Notification name for the save action.
 extension Notification.Name {
-    static let saveAction = Notification.Name("com.example.vnt.saveAction")
+    static let saveAction = Notification.Name("com.carlosborne.avante.saveAction")
 }

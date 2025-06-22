@@ -6,38 +6,27 @@
 //
 
 import SwiftUI
-
-struct DebounceModifier<Value: Equatable>: ViewModifier {
-    let value: Value
-    let delay: Duration
-    let action: (Value) -> Void
-    
-    @State private var task: Task<Void, Never>?
-    
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: value) { oldValue, newValue in
-                task?.cancel()
-                task = Task {
-                    do {
-                        try await Task.sleep(for: delay)
-                        await MainActor.run {
-                            action(newValue)
-                        }
-                    } catch {
-                        
-                    }
-                }
-            }
-    }
-}
+import Combine
 
 extension View {
-    func onChangeDebounced<Value: Equatable>(
-        of value: Value,
-        for delay: Duration,
-        perform action: @escaping (Value) -> Void
+    func debounce<Value: Equatable>(
+        _ value: Binding<Value>,
+        for dueTime: TimeInterval
     ) -> some View {
-        self.modifier(DebounceModifier(value: value, delay: delay, action: action))
+        let subject = CurrentValueSubject<Value, Never>(value.wrappedValue)
+        let publisher = subject
+            .debounce(for: .seconds(dueTime), scheduler: RunLoop.main)
+            .removeDuplicates()
+
+        return self
+            .onAppear {
+                subject.send(value.wrappedValue)
+            }
+            .onChange(of: value.wrappedValue) { oldValue, newValue in
+                subject.send(newValue)
+            }
+            .onReceive(publisher) { newValue in
+                value.wrappedValue = newValue
+            }
     }
 }

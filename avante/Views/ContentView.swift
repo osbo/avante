@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 import Combine
 
 struct ContentView: View {
-    @ObservedObject private var workspace: WorkspaceViewModel
+    @ObservedObject var workspace: WorkspaceViewModel
     @State private var analysisViewModel: AnalysisViewModel?
 
     init(workspace: WorkspaceViewModel) {
@@ -19,11 +19,36 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if let rootUrl = workspace.workspaceRootUrl {
+            if workspace.rootItem != nil {
                 NavigationSplitView {
                     VStack(spacing: 0) {
-                        NativeFileExplorer(workspace: workspace)
+                        // MARK: - Sidebar Header
+                        Text(workspace.rootItem?.name.uppercased() ?? "AVANTE")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(nsColor: .windowBackgroundColor))
+                            .onTapGesture {
+                                // Deselect by clicking the header
+                                workspace.selectedItem = nil
+                            }
+
+                        // MARK: - File Explorer
+                        // Using a ZStack with a clear color allows deselecting by clicking empty space
+                        ZStack {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    workspace.selectedItem = nil
+                                }
+                            NativeFileExplorer(workspace: workspace)
+                        }
+                        
                         Divider()
+
+                        // MARK: - Sidebar Footer Buttons
                         HStack(spacing: 20) {
                             Spacer()
                             Button(action: { workspace.createNewFile(in: workspace.selectedItem) }) {
@@ -38,28 +63,43 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .labelStyle(.iconOnly)
                     }
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 250)
                 } content: {
-                    if let fileUrl = workspace.selectedFileUrl, let vm = analysisViewModel {
+                    // MARK: - Editor View Pane
+                    // This now correctly observes the 'selectedFileForEditor' property from the ViewModel.
+                    if let fileItem = workspace.selectedFileForEditor, let vm = analysisViewModel {
                         EditView(viewModel: vm)
-                            .id(fileUrl)
+                            // Use the item's stable UUID for the .id() modifier.
+                            // This ensures the view state is preserved correctly even after a rename.
+                            .id(fileItem.id)
                     } else {
-                        Text("Select a file")
-                            .font(.title)
-                            .foregroundStyle(.secondary)
+                        // Placeholder view when no file is selected
+                        VStack {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.tertiary)
+                            Text("Select a file to edit")
+                                .font(.title)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } detail: {
+                    // MARK: - Metrics Sidebar
                     MetricsSidebar(viewModel: analysisViewModel)
-                        .navigationSplitViewColumnWidth(min: 240, ideal: 260)
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 280)
                 }
                 .ignoresSafeArea()
             } else {
-                WelcomeView(onOpen: workspace.openFolder)
+                // MARK: - Welcome View
+                WelcomeView(onOpen: workspace.openFileOrFolder)
             }
         }
-        .onChange(of: workspace.selectedFileUrl) { _, newUrl in
-            if let url = newUrl {
-                analysisViewModel = AnalysisViewModel(fileUrl: url)
+        .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
+            // This is the correct way to manage the AnalysisViewModel.
+            // It creates a new instance only when the selected file for the editor changes.
+            if let item = newFileItem {
+                analysisViewModel = AnalysisViewModel(fileUrl: item.url)
             } else {
                 analysisViewModel = nil
             }
