@@ -11,7 +11,6 @@ import Combine
 
 struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
-    @State private var analysisViewModel: AnalysisViewModel?
 
     init(workspace: WorkspaceViewModel) {
         self.workspace = workspace
@@ -23,7 +22,7 @@ struct ContentView: View {
                 NavigationSplitView {
                     VStack(spacing: 0) {
                         // MARK: - Sidebar Header
-                        Text(workspace.rootItem?.name.uppercased() ?? "AVANTE")
+                        Text(workspace.rootItem?.name ?? "AVANTE")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 10)
@@ -67,10 +66,8 @@ struct ContentView: View {
                 } content: {
                     // MARK: - Editor View Pane
                     // This now correctly observes the 'selectedFileForEditor' property from the ViewModel.
-                    if let fileItem = workspace.selectedFileForEditor, let vm = analysisViewModel {
-                        EditView(viewModel: vm)
-                            // Use the item's stable UUID for the .id() modifier.
-                            // This ensures the view state is preserved correctly even after a rename.
+                    if let fileItem = workspace.selectedFileForEditor {
+                        EditView(viewModel: workspace.viewModel(for: fileItem))
                             .id(fileItem.id)
                     } else {
                         // Placeholder view when no file is selected
@@ -86,22 +83,27 @@ struct ContentView: View {
                     }
                 } detail: {
                     // MARK: - Metrics Sidebar
-                    MetricsSidebar(viewModel: analysisViewModel)
+                    if let fileItem = workspace.selectedFileForEditor {
+                        MetricsSidebar(viewModel: workspace.viewModel(for: fileItem))
+                            .navigationSplitViewColumnWidth(min: 240, ideal: 280)
+                    } else {
+                        // Placeholder when no file is selected for analysis
+                        VStack {
+                            Image(systemName: "chart.bar")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.tertiary)
+                            Text("Select a file to see analysis")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .navigationSplitViewColumnWidth(min: 240, ideal: 280)
+                    }
                 }
                 .ignoresSafeArea()
             } else {
                 // MARK: - Welcome View
                 WelcomeView(onOpen: workspace.openFileOrFolder)
-            }
-        }
-        .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
-            // This is the correct way to manage the AnalysisViewModel.
-            // It creates a new instance only when the selected file for the editor changes.
-            if let item = newFileItem {
-                analysisViewModel = AnalysisViewModel(fileUrl: item.url)
-            } else {
-                analysisViewModel = nil
             }
         }
     }

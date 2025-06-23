@@ -19,10 +19,8 @@ struct EditView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scrollClipDisabled()
             .onChange(of: viewModel.document.file.text) { oldValue, newValue in
-                viewModel.textDidChange()
-                viewModel.document.save()
+                viewModel.textDidChange(with: newValue)
             }
-        
             .onReceive(NotificationCenter.default.publisher(for: .saveAction)) { _ in
                 print("Save command received. Saving document.")
                 viewModel.document.save()

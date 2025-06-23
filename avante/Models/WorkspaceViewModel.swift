@@ -19,15 +19,19 @@ class WorkspaceViewModel: ObservableObject {
     @Published var rootItem: FileItem?
     @Published var selectedItem: FileItem? {
         didSet {
-            if let item = selectedItem, !item.isFolder { self.selectedFileForEditor = item }
-            else { self.selectedFileForEditor = nil }
+            if let item = selectedItem, !item.isFolder {
+                self.selectedFileForEditor = item
+            } else {
+                self.selectedFileForEditor = nil
+            }
         }
     }
     @Published var selectedFileForEditor: FileItem?
     
-    // This property is used to signal a one-time event to the Coordinator.
-    @Published var pendingInsertion: (item: FileItem, parent: FileItem)?
-
+    private var isPerformingManualFileOperation = false
+    
+    private var openFileViewModels: [URL: AnalysisViewModel] = [:]
+    
     private var expandedItemURLs = Set<URL>()
     private var fileSystemMonitor = FileSystemMonitor()
     private var securityScopedURL: URL?
@@ -38,21 +42,35 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     deinit {
-        // Ensure we release the resource when the app is closing.
         securityScopedURL?.stopAccessingSecurityScopedResource()
     }
     
     private func setupFileSystemMonitoring() {
         fileSystemMonitor.changeHandler = { [weak self] in
+            guard let self = self, !self.isPerformingManualFileOperation else {
+                print("Ignoring file system change due to manual operation.")
+                return
+            }
             print("File system change detected, refreshing tree.")
-            self?.refreshFileTree()
+            self.refreshFileTree()
         }
     }
 
     // MARK: Public API
+    func viewModel(for fileItem: FileItem) -> AnalysisViewModel {
+        // If a view model for this URL already exists in our cache, return it.
+        if let cachedViewModel = openFileViewModels[fileItem.url] {
+            return cachedViewModel
+        }
+        
+        // Otherwise, create a new one, add it to the cache, and return it.
+        let newViewModel = AnalysisViewModel(fileUrl: fileItem.url)
+        openFileViewModels[fileItem.url] = newViewModel
+        return newViewModel
+    }
+    
     func openFileOrFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+        let panel = NSOpenPanel(); panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [UTType("com.example.vnt")!, .folder]
         if panel.runModal() == .OK, let url = panel.url { open(url: url) }
     }
@@ -61,18 +79,34 @@ class WorkspaceViewModel: ObservableObject {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
         let workspaceUrl = isDirectory ? url : url.deletingLastPathComponent()
         setWorkspace(url: workspaceUrl)
-        if !isDirectory { selectFile(at: url) }
+        if !isDirectory {
+            DispatchQueue.main.async { [weak self] in
+                self?.selectFile(at: url)
+            }
+        }
     }
     
     func createNewFile(in parent: FileItem?) {
         let parentItem = determineParent(for: parent)
         if !parentItem.isExpanded { toggleExpansion(for: parentItem) }
         
+        self.isPerformingManualFileOperation = true
+        
         Task {
             if let newURL = await createUniqueItem(in: parentItem, baseName: "Untitled", isFolder: false) {
                 let newItem = FileItem(url: newURL); newItem.parent = parentItem
-                // Signal the UI to perform the insertion.
-                self.pendingInsertion = (item: newItem, parent: parentItem)
+                parentItem.children?.append(newItem)
+                parentItem.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
+                
+                // This is the key line: setting the selection opens the file in the editor,
+                // which will now correctly receive focus.
+                self.selectedItem = newItem
+                
+                // FIX: The call to initiate renaming has been removed.
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.isPerformingManualFileOperation = false
             }
         }
     }
@@ -81,34 +115,64 @@ class WorkspaceViewModel: ObservableObject {
         let parentItem = determineParent(for: parent)
         if !parentItem.isExpanded { toggleExpansion(for: parentItem) }
 
+        self.isPerformingManualFileOperation = true
+        
         Task {
             if let newURL = await createUniqueItem(in: parentItem, baseName: "Untitled Folder", isFolder: true) {
                 let newItem = FileItem(url: newURL); newItem.parent = parentItem
-                // Signal the UI to perform the insertion.
-                self.pendingInsertion = (item: newItem, parent: parentItem)
+                parentItem.children?.append(newItem)
+                parentItem.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
+                self.selectedItem = newItem
+                // FIX: The call to initiate renaming has been removed.
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.isPerformingManualFileOperation = false
             }
         }
     }
     
     func renameItem(_ item: FileItem, to newName: String) {
-        let oldURL = item.url // This access is now safe because item is @MainActor
+        self.isPerformingManualFileOperation = true
+        let oldURL = item.url
         let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(newName)
+        
         Task {
             do {
                 try await Task.detached { try FileManager.default.moveItem(at: oldURL, to: newURL) }.value
-                item.url = newURL; refreshFileTree()
+                item.url = newURL
+                
+                if let viewModel = self.openFileViewModels.removeValue(forKey: oldURL) {
+                    viewModel.document.updateURL(to: newURL)
+                    self.openFileViewModels[newURL] = viewModel
+                }
+                
+                refreshFileTree()
             } catch { print("Error renaming item: \(error)") }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.isPerformingManualFileOperation = false
+            }
         }
     }
     
     func deleteItem(_ item: FileItem) {
         if selectedItem == item { selectedItem = nil }
-        let urlToDelete = item.url // This access is now safe
+        self.isPerformingManualFileOperation = true
+        let urlToDelete = item.url
+        
         Task {
             do {
                 try await Task.detached { try FileManager.default.removeItem(at: urlToDelete) }.value
-                self.refreshFileTree()
+                
+                self.openFileViewModels.removeValue(forKey: urlToDelete)
+                
+                refreshFileTree()
             } catch { print("Error deleting item: \(error)") }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.isPerformingManualFileOperation = false
+            }
         }
     }
     

@@ -73,8 +73,8 @@ struct NativeFileExplorer: NSViewRepresentable {
     @ObservedObject var workspace: WorkspaceViewModel
 
     func makeNSView(context: Context) -> NSScrollView {
-        // ... (This function remains the same)
         let scrollView = NSScrollView(); let outlineView = CustomOutlineView()
+        
         outlineView.dataSource = context.coordinator; outlineView.delegate = context.coordinator
         outlineView.headerView = nil; outlineView.style = .sourceList; outlineView.floatsGroupRows = false; outlineView.rowHeight = 28
         let column = NSTableColumn(identifier: .init("column")); outlineView.addTableColumn(column); outlineView.outlineTableColumn = column
@@ -84,67 +84,36 @@ struct NativeFileExplorer: NSViewRepresentable {
         context.coordinator.outlineView = outlineView
         return scrollView
     }
+    
+    func makeCoordinator() -> Coordinator {
+        return Coordinator(workspace: workspace)
+    }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let outlineView = nsView.documentView as? NSOutlineView else { return }
         context.coordinator.workspace = workspace
         
-        // FIX: The update logic is now much simpler and more robust.
-        
-        // 1. Check for a pending insertion event.
-        if let insertion = workspace.pendingInsertion {
-            // Immediately clear the flag to acknowledge the event.
-            workspace.pendingInsertion = nil
-            // Delegate the entire complex operation to the coordinator.
-            context.coordinator.performInsertAndRename(for: insertion.item, in: insertion.parent, in: outlineView)
-        } else {
-            // 2. For all other updates, just reload and sync.
-            outlineView.reloadData()
-            context.coordinator.syncSelectionAndExpansion(in: outlineView)
-        }
+        outlineView.reloadData()
+        context.coordinator.syncSelectionAndExpansion(in: outlineView)
     }
-
-    func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
     
     class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate, NSMenuDelegate {
         var workspace: WorkspaceViewModel
-        weak var outlineView: NSOutlineView?
+        fileprivate var outlineView: CustomOutlineView?
         private var itemBeingEdited: FileItem?
 
         init(workspace: WorkspaceViewModel) { self.workspace = workspace }
         
         // MARK: - Core UI Choreography
-        
-        // FIX: This new function handles the entire create-and-rename flow imperatively.
-        func performInsertAndRename(for item: FileItem, in parent: FileItem, in outlineView: NSOutlineView) {
-            // 1. Update the data model first.
-            parent.children?.append(item)
-            parent.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
-            
-            // 2. Find the item's new index in the sorted array.
-            guard let insertionIndex = parent.children?.firstIndex(of: item) else { return }
-
-            // 3. Animate the insertion in the UI.
-            outlineView.insertItems(at: IndexSet(integer: insertionIndex), inParent: parent, withAnimation: .effectGap)
-            
-            // 4. Select the new row.
-            let row = outlineView.row(forItem: item)
-            guard row != -1 else { return }
-            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            
-            // 5. Scroll to make it visible.
-            outlineView.scrollRowToVisible(row)
-            
-            // 6. Finally, begin editing.
-            beginEditing(item: item, in: outlineView)
-        }
 
         func beginEditing(item: FileItem, in outlineView: NSOutlineView) {
             let row = outlineView.row(forItem: item)
             guard row != -1 else { return }
-            if let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileCellView {
-                cell.beginEditing()
-            }
+            
+            let columnIndex = outlineView.column(withIdentifier: .init("column"))
+            guard columnIndex != -1 else { return }
+
+            outlineView.editColumn(columnIndex, row: row, with: nil, select: true)
         }
         
         // MARK: - Data Source
@@ -261,9 +230,14 @@ struct NativeFileExplorer: NSViewRepresentable {
         @objc func newFileAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFile(in: p) } }
         @objc func newFolderAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFolder(in: p) } }
         @objc func renameAction(_ sender: Any?) {
-            if let item = (sender as? NSMenuItem)?.representedObject as? FileItem, let outlineView = self.outlineView {
-                // We don't need a state machine anymore because the update logic is safer.
-                beginEditing(item: item, in: outlineView)
+            guard let item = (sender as? NSMenuItem)?.representedObject as? FileItem,
+                let outlineView = self.outlineView else { return }
+            DispatchQueue.main.async {
+                let row = outlineView.row(forItem: item)
+                guard row != -1, let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileCellView else {
+                    return
+                }
+            cell.beginEditing()
             }
         }
         @objc func deleteAction(_ sender: Any?) { if let i = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.deleteItem(i) } }
