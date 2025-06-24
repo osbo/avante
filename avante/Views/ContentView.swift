@@ -11,11 +11,8 @@ import Combine
 
 struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
-
-    init(workspace: WorkspaceViewModel) {
-        self.workspace = workspace
-    }
-
+    @StateObject private var analysisController = AnalysisController()
+    
     var body: some View {
         Group {
             if workspace.rootItem != nil {
@@ -30,12 +27,10 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(nsColor: .windowBackgroundColor))
                             .onTapGesture {
-                                // Deselect by clicking the header
                                 workspace.selectedItem = nil
                             }
 
                         // MARK: - File Explorer
-                        // Using a ZStack with a clear color allows deselecting by clicking empty space
                         ZStack {
                             Color.clear
                                 .contentShape(Rectangle())
@@ -65,12 +60,17 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 200, ideal: 250)
                 } content: {
                     // MARK: - Editor View Pane
-                    // This now correctly observes the 'selectedFileForEditor' property from the ViewModel.
                     if let fileItem = workspace.selectedFileForEditor {
-                        EditView(viewModel: workspace.viewModel(for: fileItem))
-                            .id(fileItem.id)
+                        AIAnalysisTextView(
+                            text: $analysisController.documentText,
+                            analysisController: analysisController
+                        )
+                        .id(fileItem.id)
+                        .onReceive(NotificationCenter.default.publisher(for: .saveAction)) { _ in
+                            print("Save command received. Saving document.")
+                            analysisController.saveDocument()
+                        }
                     } else {
-                        // Placeholder view when no file is selected
                         VStack {
                             Image(systemName: "doc.text.magnifyingglass")
                                 .font(.system(size: 60))
@@ -83,31 +83,20 @@ struct ContentView: View {
                     }
                 } detail: {
                     // MARK: - Metrics Sidebar
-                    if let fileItem = workspace.selectedFileForEditor {
-                        MetricsSidebar(viewModel: workspace.viewModel(for: fileItem))
-                            .navigationSplitViewColumnWidth(min: 240, ideal: 280)
-                    } else {
-                        // Placeholder when no file is selected for analysis
-                        VStack {
-                            Image(systemName: "chart.bar")
-                                .font(.system(size: 60))
-                                .foregroundStyle(.tertiary)
-                            Text("Select a file to see analysis")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    MetricsSidebar(analysisController: analysisController)
                         .navigationSplitViewColumnWidth(min: 240, ideal: 280)
-                    }
                 }
                 .ignoresSafeArea()
             } else {
-                // MARK: - Welcome View
                 WelcomeView(onOpen: workspace.openFileOrFolder)
             }
         }
+        .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
+            analysisController.loadDocument(from: newFileItem?.url)
+        }
     }
 }
+
 
 struct WelcomeView: View {
     var onOpen: () -> Void

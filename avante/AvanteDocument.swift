@@ -8,6 +8,35 @@
 import SwiftUI
 import Combine
 
+struct DocumentState: Codable, Equatable {
+    var documentId: UUID = UUID()
+    var schemaVersion: String = "1.0.0"
+    var fullText: String
+    var analysisSessions: [AnalysisSession]
+
+    static func == (lhs: DocumentState, rhs: DocumentState) -> Bool {
+        lhs.documentId == rhs.documentId
+    }
+}
+
+struct AnalysisSession: Codable, Equatable, Identifiable {
+    var id: UUID = UUID()
+    var startLocation: Int
+    var contextSummary: String // For future use with large documents
+    var analyzedEdits: [AnalyzedEdit]
+
+    static func == (lhs: AnalysisSession, rhs: AnalysisSession) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
+struct AnalyzedEdit: Codable, Equatable, Identifiable {
+    var id: UUID = UUID()
+    var range: CodableRange
+    var text: String
+    var analysisResult: AnalysisMetricsGroup
+}
+
 struct CodableRange: Codable, Equatable, Hashable {
     let lowerBound: Int
     let upperBound: Int
@@ -15,54 +44,30 @@ struct CodableRange: Codable, Equatable, Hashable {
 
 struct AnalysisMetricsGroup: Codable, Equatable, Hashable, Identifiable {
     var id: UUID = UUID()
-    var range: CodableRange
     var predictability: Double
     var clarity: Double
     var flow: Double
 }
 
-struct AvanteFile: Codable, Equatable {
-    var text: String
-    var analysis: [AnalysisMetricsGroup]
-}
-
 class AvanteDocument: ObservableObject {
-    @Published var file: AvanteFile
+    @Published var state: DocumentState
     private(set) var url: URL
     
     init(url: URL) {
         self.url = url
         
-        // Check if file exists first
-        let fileExists = FileManager.default.fileExists(atPath: url.path)
-        
-        if fileExists {
-            do {
-                let data = try Data(contentsOf: url)
-                
-                // Validate that we have actual data
-                guard !data.isEmpty else {
-                    print("File exists but is empty, creating new document")
-                    self.file = AvanteFile(text: "", analysis: [])
-                    return
-                }
-                
-                // Try to decode the JSON
-                do {
-                    self.file = try JSONDecoder().decode(AvanteFile.self, from: data)
-                    print("Successfully loaded file from \(url.lastPathComponent)")
-                } catch let decodingError as DecodingError {
-                    print("JSON decoding failed for \(url.lastPathComponent): \(decodingError)")
-                    // Create a new document if JSON is corrupted
-                    self.file = AvanteFile(text: "", analysis: [])
-                }
-            } catch {
-                print("Could not read file \(url.lastPathComponent), creating new document. Error: \(error)")
-                self.file = AvanteFile(text: "", analysis: [])
-            }
+        if let data = try? Data(contentsOf: url),
+           let decodedState = try? JSONDecoder().decode(DocumentState.self, from: data) {
+            self.state = decodedState
+            print("Successfully loaded document state from \(url.lastPathComponent)")
         } else {
-            print("File does not exist, creating new document: \(url.lastPathComponent)")
-            self.file = AvanteFile(text: "", analysis: [])
+            self.state = DocumentState(fullText: "", analysisSessions: [])
+            if let initialText = try? String(contentsOf: url, encoding: .utf8) {
+                self.state.fullText = initialText
+                 print("Loaded document as plain text, creating new analysis state.")
+            } else {
+                 print("File does not exist or is corrupt, creating new document state: \(url.lastPathComponent)")
+            }
         }
     }
     
@@ -70,24 +75,8 @@ class AvanteDocument: ObservableObject {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
-            // Truncate all metrics before saving
-            var fileToSave = file
-            fileToSave.analysis = file.analysis.map { $0.truncated() }
-            let data = try encoder.encode(fileToSave)
+            let data = try encoder.encode(state)
             
-            guard !data.isEmpty, String(data: data, encoding: .utf8) != "null" else {
-                print("Warning: Encoded data is empty or null. Aborting save to prevent corruption.")
-                return
-            }
-            
-            // Ensure the directory exists
-            let directory = url.deletingLastPathComponent()
-            if !FileManager.default.fileExists(atPath: directory.path) {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                print("Created directory: \(directory.path)")
-            }
-            
-            // Write the data atomically
             try data.write(to: url, options: .atomic)
             print("File saved successfully to \(url.lastPathComponent)")
         } catch {
@@ -95,37 +84,7 @@ class AvanteDocument: ObservableObject {
         }
     }
     
-    // Method to add analysis metrics and trigger UI updates
-    func addAnalysisMetrics(_ newMetrics: [AnalysisMetricsGroup]) {
-        file.analysis.append(contentsOf: newMetrics)
-        // Trigger UI update by reassigning the file property
-        objectWillChange.send()
-    }
-    
-    // Method to update text and trigger UI updates
-    func updateText(_ newText: String) {
-        file.text = newText
-        // Trigger UI update by reassigning the file property
-        objectWillChange.send()
-    }
-    
     func updateURL(to newURL: URL) {
         self.url = newURL
-    }
-}
-
-// Custom encoder to truncate values to two decimal places
-extension AnalysisMetricsGroup {
-    func truncated() -> AnalysisMetricsGroup {
-        func truncate(_ value: Double) -> Double {
-            return Double(Int(value * 100)) / 100.0
-        }
-        return AnalysisMetricsGroup(
-            id: id,
-            range: range,
-            predictability: truncate(predictability),
-            clarity: truncate(clarity),
-            flow: truncate(flow)
-        )
     }
 }

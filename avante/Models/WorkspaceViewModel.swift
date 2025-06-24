@@ -30,8 +30,6 @@ class WorkspaceViewModel: ObservableObject {
     
     private var isPerformingManualFileOperation = false
     
-    private var openFileViewModels: [URL: AnalysisViewModel] = [:]
-    
     private var expandedItemURLs = Set<URL>()
     private var fileSystemMonitor = FileSystemMonitor()
     private var securityScopedURL: URL?
@@ -54,19 +52,6 @@ class WorkspaceViewModel: ObservableObject {
             print("File system change detected, refreshing tree.")
             self.refreshFileTree()
         }
-    }
-
-    // MARK: Public API
-    func viewModel(for fileItem: FileItem) -> AnalysisViewModel {
-        // If a view model for this URL already exists in our cache, return it.
-        if let cachedViewModel = openFileViewModels[fileItem.url] {
-            return cachedViewModel
-        }
-        
-        // Otherwise, create a new one, add it to the cache, and return it.
-        let newViewModel = AnalysisViewModel(fileUrl: fileItem.url)
-        openFileViewModels[fileItem.url] = newViewModel
-        return newViewModel
     }
     
     func openFileOrFolder() {
@@ -97,12 +82,7 @@ class WorkspaceViewModel: ObservableObject {
                 let newItem = FileItem(url: newURL); newItem.parent = parentItem
                 parentItem.children?.append(newItem)
                 parentItem.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
-                
-                // This is the key line: setting the selection opens the file in the editor,
-                // which will now correctly receive focus.
                 self.selectedItem = newItem
-                
-                // FIX: The call to initiate renaming has been removed.
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -123,7 +103,6 @@ class WorkspaceViewModel: ObservableObject {
                 parentItem.children?.append(newItem)
                 parentItem.children?.sort { ($0.isFolder && !$1.isFolder) || ($0.isFolder == $1.isFolder && $0.name.localizedStandardCompare($1.name) == .orderedAscending) }
                 self.selectedItem = newItem
-                // FIX: The call to initiate renaming has been removed.
             }
             
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -142,11 +121,6 @@ class WorkspaceViewModel: ObservableObject {
                 try await Task.detached { try FileManager.default.moveItem(at: oldURL, to: newURL) }.value
                 item.url = newURL
                 
-                if let viewModel = self.openFileViewModels.removeValue(forKey: oldURL) {
-                    viewModel.document.updateURL(to: newURL)
-                    self.openFileViewModels[newURL] = viewModel
-                }
-                
                 refreshFileTree()
             } catch { print("Error renaming item: \(error)") }
             
@@ -164,9 +138,6 @@ class WorkspaceViewModel: ObservableObject {
         Task {
             do {
                 try await Task.detached { try FileManager.default.removeItem(at: urlToDelete) }.value
-                
-                self.openFileViewModels.removeValue(forKey: urlToDelete)
-                
                 refreshFileTree()
             } catch { print("Error deleting item: \(error)") }
             
@@ -196,7 +167,6 @@ class WorkspaceViewModel: ObservableObject {
             return
         }
         
-        // Keep track of the URL we are now accessing.
         self.securityScopedURL = url
         
         saveWorkspaceBookmark(url)
@@ -240,22 +210,40 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     private func createUniqueItem(in parent: FileItem, baseName: String, isFolder: Bool) async -> URL? {
-        // ... (This function remains the same)
         let parentUrl = parent.url
         let pathExtension = isFolder ? "" : "vnt"
+        
+        let dataToSave: Data?
+        if !isFolder {
+            do {
+                let emptyState = DocumentState(fullText: "", analysisSessions: [])
+                dataToSave = try JSONEncoder().encode(emptyState)
+            } catch {
+                print("Failed to encode new item state: \(error)"); return nil
+            }
+        } else {
+            dataToSave = nil
+        }
+        
         return await Task.detached {
             var counter = 1
             var finalName = pathExtension.isEmpty ? baseName : "\(baseName).\(pathExtension)"
             var newURL = parentUrl.appendingPathComponent(finalName)
+            
             while FileManager.default.fileExists(atPath: newURL.path) {
                 counter += 1
                 let newBaseName = "\(baseName) \(counter)"
                 finalName = pathExtension.isEmpty ? newBaseName : "\(newBaseName).\(pathExtension)"
                 newURL = parentUrl.appendingPathComponent(finalName)
             }
+            
             do {
-                if isFolder { try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false) }
-                else { try "".write(to: newURL, atomically: true, encoding: .utf8) }
+                if isFolder {
+                    try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false)
+                } else if let data = dataToSave {
+                    // Write the pre-encoded data from the background thread.
+                    try data.write(to: newURL, options: .atomic)
+                }
                 return newURL
             } catch {
                 print("Failed to create new item: \(error)"); return nil
