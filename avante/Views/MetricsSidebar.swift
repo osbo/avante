@@ -9,14 +9,12 @@ import SwiftUI
 
 struct MetricsSidebar: View {
     @ObservedObject var analysisController: AnalysisController
-    @State private var highlightedMetricType: MetricType?
     
     var body: some View {
         VStack(spacing: 30) {
-            let hasAnalysis = analysisController.latestMetrics != nil
             let status = analysisController.status
             
-            if status.contains("Priming") || status.contains("Initializing") {
+            if status.contains("Priming") {
                 ProgressView()
                     .padding(.bottom, 8)
                 Text(status)
@@ -28,10 +26,11 @@ struct MetricsSidebar: View {
                 RadialDial(metric: latestMetrics, type: .flow, title: "Flow")
                 Spacer()
                 
-                if status == "Analyzing..." {
+                if status == "Analyzing..." || status == "Word queued..." {
                     ProgressView()
                     Text(status)
                        .foregroundStyle(.secondary)
+                       .padding(.bottom)
                 }
                 
             } else {

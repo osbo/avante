@@ -11,31 +11,44 @@ import AppKit
 fileprivate class FileCellView: NSTableCellView {
     let nameTextField = NSTextField(labelWithString: "")
     let iconImageView = NSImageView()
-    private let stackView = NSStackView()
+    let dirtyIndicator = NSTextField(labelWithString: "•")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         
+        // --- Configure Views ---
         iconImageView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        
         nameTextField.isBezeled = false
         nameTextField.drawsBackground = false
         nameTextField.isEditable = false
         nameTextField.cell?.truncatesLastVisibleLine = true
         nameTextField.lineBreakMode = .byTruncatingTail
+
+        dirtyIndicator.isBezeled = false
+        dirtyIndicator.drawsBackground = false
+        dirtyIndicator.isEditable = false
+        // FIX: Increase font size slightly for better visibility.
+        dirtyIndicator.font = .systemFont(ofSize: 20)
         
-        stackView.orientation = .horizontal
-        stackView.alignment = .centerY
-        stackView.spacing = 6
+        // --- Add Subviews ---
+        [iconImageView, nameTextField, dirtyIndicator].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            addSubview($0)
+        }
         
-        stackView.addArrangedSubview(iconImageView)
-        stackView.addArrangedSubview(nameTextField)
-        addSubview(stackView)
-        
-        stackView.translatesAutoresizingMaskIntoConstraints = false
+        // --- Setup Auto Layout Constraints ---
         NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stackView.centerYAnchor.constraint(equalTo: centerYAnchor)
+            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
+            nameTextField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
+            nameTextField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
+            dirtyIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            dirtyIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            
+            nameTextField.trailingAnchor.constraint(lessThanOrEqualTo: dirtyIndicator.leadingAnchor, constant: -4)
         ])
     }
 
@@ -51,6 +64,10 @@ fileprivate class FileCellView: NSTableCellView {
             iconImageView.contentTintColor = .controlAccentColor
             nameTextField.stringValue = item.url.deletingPathExtension().lastPathComponent
         }
+        
+        dirtyIndicator.isHidden = !item.isDirty
+        // FIX: Set color to match the standard label color (white/black).
+        dirtyIndicator.textColor = .labelColor
     }
     
     func beginEditing() {
@@ -60,6 +77,8 @@ fileprivate class FileCellView: NSTableCellView {
     }
 }
 
+
+// ... The rest of the file (CustomOutlineView, NativeFileExplorer, and Coordinator) remains unchanged ...
 fileprivate class CustomOutlineView: NSOutlineView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = self.convert(event.locationInWindow, from: nil)
@@ -104,19 +123,6 @@ struct NativeFileExplorer: NSViewRepresentable {
 
         init(workspace: WorkspaceViewModel) { self.workspace = workspace }
         
-        // MARK: - Core UI Choreography
-
-        func beginEditing(item: FileItem, in outlineView: NSOutlineView) {
-            let row = outlineView.row(forItem: item)
-            guard row != -1 else { return }
-            
-            let columnIndex = outlineView.column(withIdentifier: .init("column"))
-            guard columnIndex != -1 else { return }
-
-            outlineView.editColumn(columnIndex, row: row, with: nil, select: true)
-        }
-        
-        // MARK: - Data Source
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             guard let fileItem = item as? FileItem else { return workspace.rootItem?.children?.count ?? 0 }
             return fileItem.children?.count ?? 0
@@ -131,7 +137,6 @@ struct NativeFileExplorer: NSViewRepresentable {
             (item as? FileItem)?.isFolder ?? false
         }
         
-        // MARK: - Delegate
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let fileItem = item as? FileItem else { return nil }
             let id = NSUserInterfaceItemIdentifier("FileCell")
@@ -144,7 +149,6 @@ struct NativeFileExplorer: NSViewRepresentable {
         
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard let outlineView = notification.object as? NSOutlineView,
-                  // Prevent this from firing when we are programmatically setting selection
                   outlineView.window?.firstResponder == outlineView else { return }
             
             let selectedIndex = outlineView.selectedRow
@@ -171,18 +175,15 @@ struct NativeFileExplorer: NSViewRepresentable {
             else { workspace.selectedItem = item }
         }
 
-        // MARK: - Renaming Logic
         func controlTextDidBeginEditing(_ obj: Notification) {
-            // This function is now correctly protected by the viewState logic.
             guard let textField = obj.object as? NSTextField,
-                  let cell = textField.superview?.superview as? FileCellView,
+                  let cell = textField.superview as? FileCellView,
                   let outlineView = self.outlineView,
                   let item = outlineView.item(atRow: outlineView.row(for: cell)) as? FileItem else { return }
             self.itemBeingEdited = item
         }
         
         func controlTextDidEndEditing(_ obj: Notification) {
-            // This correctly resets the state machine to idle after ANY edit.
             guard let textField = obj.object as? NSTextField, let item = self.itemBeingEdited else {
                 return
             }
@@ -203,7 +204,6 @@ struct NativeFileExplorer: NSViewRepresentable {
             self.itemBeingEdited = nil
         }
         
-        // MARK: - Context Menu
         @objc func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let outlineView = self.outlineView else { return }
@@ -231,18 +231,17 @@ struct NativeFileExplorer: NSViewRepresentable {
         @objc func newFolderAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFolder(in: p) } }
         @objc func renameAction(_ sender: Any?) {
             guard let item = (sender as? NSMenuItem)?.representedObject as? FileItem,
-                let outlineView = self.outlineView else { return }
+                  let outlineView = self.outlineView else { return }
             DispatchQueue.main.async {
                 let row = outlineView.row(forItem: item)
                 guard row != -1, let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? FileCellView else {
                     return
                 }
-            cell.beginEditing()
+                cell.beginEditing()
             }
         }
         @objc func deleteAction(_ sender: Any?) { if let i = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.deleteItem(i) } }
         
-        // MARK: - Sync Logic
         func syncSelectionAndExpansion(in outlineView: NSOutlineView) {
             func expand(items: [FileItem]) {
                 for item in items {

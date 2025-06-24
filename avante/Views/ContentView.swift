@@ -13,12 +13,15 @@ struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
     @StateObject private var analysisController = AnalysisController()
     
+    init(workspace: WorkspaceViewModel) {
+        self.workspace = workspace
+    }
+
     var body: some View {
         Group {
             if workspace.rootItem != nil {
                 NavigationSplitView {
                     VStack(spacing: 0) {
-                        // MARK: - Sidebar Header
                         Text(workspace.rootItem?.name ?? "AVANTE")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.secondary)
@@ -30,7 +33,6 @@ struct ContentView: View {
                                 workspace.selectedItem = nil
                             }
 
-                        // MARK: - File Explorer
                         ZStack {
                             Color.clear
                                 .contentShape(Rectangle())
@@ -42,7 +44,6 @@ struct ContentView: View {
                         
                         Divider()
 
-                        // MARK: - Sidebar Footer Buttons
                         HStack(spacing: 20) {
                             Spacer()
                             Button(action: { workspace.createNewFile(in: workspace.selectedItem) }) {
@@ -59,7 +60,6 @@ struct ContentView: View {
                     }
                     .navigationSplitViewColumnWidth(min: 200, ideal: 250)
                 } content: {
-                    // MARK: - Editor View Pane
                     if let fileItem = workspace.selectedFileForEditor {
                         AIAnalysisTextView(
                             text: $analysisController.documentText,
@@ -82,7 +82,6 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } detail: {
-                    // MARK: - Metrics Sidebar
                     MetricsSidebar(analysisController: analysisController)
                         .navigationSplitViewColumnWidth(min: 240, ideal: 280)
                 }
@@ -91,8 +90,16 @@ struct ContentView: View {
                 WelcomeView(onOpen: workspace.openFileOrFolder)
             }
         }
+        .onAppear {
+            analysisController.setWorkspace(workspace)
+        }
         .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
-            analysisController.loadDocument(from: newFileItem?.url)
+            guard let item = newFileItem else {
+                analysisController.loadDocument(document: nil)
+                return
+            }
+            let documentToLoad = workspace.getDocument(for: item)
+            analysisController.loadDocument(document: documentToLoad)
         }
     }
 }

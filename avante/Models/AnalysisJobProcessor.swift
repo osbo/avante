@@ -25,7 +25,6 @@ actor AnalysisJobProcessor {
         print("⚙️ AnalysisJobProcessor has been reset.")
     }
 
-    // The completion handler now returns a Result type to communicate success or failure.
     func queue(edit: Edit, onResult: @escaping @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void) {
         editQueue.append(edit)
         print("➡️ Queued word: '\(edit.textAdded)'. Current queue size: \(editQueue.count)")
@@ -52,10 +51,8 @@ actor AnalysisJobProcessor {
         print("⚙️ Processing combined chunk: \"\(chunkToAnalyze)\"")
 
         Task {
-            // Using a defer block ensures these actions run whether the task succeeds or fails.
             defer {
                 isProcessing = false
-                // Check for more work that may have arrived during processing.
                 processQueueIfNeeded(onResult: onResult)
             }
             
@@ -68,13 +65,15 @@ actor AnalysisJobProcessor {
                 let f = min(max(response.content.flowScore, 0.0), 1.0)
                 
                 let metrics = AnalysisMetricsGroup(predictability: p, clarity: c, flow: f)
-                let result = AnalysisResult(metrics: metrics, rawResponse: response.content.description)
+                
+                // FIX: Manually construct the description string to avoid actor-isolation issues.
+                let content = response.content
+                let descriptionString = "P: \(content.predictabilityScore), C: \(content.clarityScore), F: \(content.flowScore)"
+                let result = AnalysisResult(metrics: metrics, rawResponse: descriptionString)
 
-                // On success, send back the result and the edits that produced it.
                 await onResult(.success(result), editsToProcess)
                 
             } catch {
-                // FIX: On failure, catch the error and send it back to the controller.
                 print("❌ Actor processing failed: \(error)")
                 await onResult(.failure(error), editsToProcess)
             }

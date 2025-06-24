@@ -19,52 +19,67 @@ struct Edit {
 
 @MainActor
 class AnalysisController: ObservableObject {
-    @Published var documentText: String = ""
+    @Published var documentText: String = "" {
+        didSet {
+            if activeDocument?.state.fullText != documentText {
+                activeDocument?.state.fullText = documentText
+                if let doc = activeDocument {
+                    workspace?.markDocumentAsDirty(url: doc.url)
+                }
+            }
+        }
+    }
+    
     @Published private(set) var latestMetrics: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
-    private var document: AvanteDocument?
+    private(set) var activeDocument: AvanteDocument?
+    private(set) weak var workspace: WorkspaceViewModel?
+
     private let jobProcessor = AnalysisJobProcessor()
     private var currentAnalysisSessionID: UUID?
 
-    func loadDocument(from url: URL?) {
-        // FIX: Check if the requested URL is already the one we have open.
-        // If it is, do nothing to prevent accidental session resets from UI refreshes.
-        if document?.url == url, document != nil {
-            return
-        }
-        
-        // If we proceed, it's a genuinely new document, so it's safe to reset.
-        Task { await jobProcessor.reset() }
-        
-        guard let url = url else {
-            self.document = nil
+    func setWorkspace(_ workspace: WorkspaceViewModel) {
+        self.workspace = workspace
+    }
+
+    func loadDocument(document: AvanteDocument?) {
+        guard let doc = document else {
+            self.activeDocument = nil
             self.documentText = ""
             self.latestMetrics = nil
             self.status = "Select a file to begin."
-            currentAnalysisSessionID = nil
             return
         }
+
+        if self.activeDocument?.url == doc.url { return }
         
-        let newDocument = AvanteDocument(url: url)
-        self.document = newDocument
-        self.documentText = newDocument.state.fullText
+        self.activeDocument = doc
+        self.documentText = doc.state.fullText
         self.status = "Document loaded."
         
-        handleSessionBreak()
+        resetLiveSession()
     }
 
     func saveDocument() {
-        guard let document = document else { return }
-        document.state.fullText = self.documentText
-        document.save()
+        guard let doc = activeDocument, let workspace = self.workspace else { return }
+
+        // FIX: Tell the workspace we are about to perform a manual file operation.
+        workspace.isPerformingManualFileOperation = true
+        
+        doc.state.fullText = self.documentText
+        doc.save()
+        workspace.markDocumentAsClean(url: doc.url)
+        
+        // After a short delay, allow file system events to be processed again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            workspace.isPerformingManualFileOperation = false
+        }
     }
     
     func queueForAnalysis(edit: Edit) {
-        self.documentText = edit.fullDocumentContext
-        
         if !edit.isLinear {
-            handleSessionBreak(at: edit.range.location)
+            createNewAnalysisSession(at: edit.range.location)
         }
         
         Task {
@@ -87,28 +102,36 @@ class AnalysisController: ObservableObject {
                     )
                     
                     if let currentID = self.currentAnalysisSessionID,
-                       let sessionIndex = self.document?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) {
-                        self.document?.state.analysisSessions[sessionIndex].analyzedEdits.append(newAnalyzedEdit)
+                       let sessionIndex = self.activeDocument?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) {
+                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.append(newAnalyzedEdit)
                     }
                 
                 case .failure(let error):
                     self.status = "Analysis failed."
                     if String(describing: error).contains("Context length") {
                         print("🚨 Context overflow detected! Automatically resetting session.")
-                        self.handleSessionBreak(at: edit.range.location)
+                        self.createNewAnalysisSession(at: edit.range.location)
                     }
                 }
             }
         }
     }
     
-    private func handleSessionBreak(at location: Int? = nil) {
-        print("SESSION BREAK: Starting new analysis session.")
-        currentAnalysisSessionID = nil
+    private func createNewAnalysisSession(at location: Int? = nil) {
+        print("SESSION BREAK: Creating new analysis session in data model.")
+        
+        let newSession = AnalysisSession(startLocation: location ?? 0, contextSummary: "", analyzedEdits: [])
+        self.activeDocument?.state.analysisSessions.append(newSession)
+        self.currentAnalysisSessionID = newSession.id
+        
+        resetLiveSession()
+    }
+    
+    private func resetLiveSession() {
         Task { await jobProcessor.reset() }
         
         Task {
-            self.status = "Priming new session..."
+            self.status = "Priming session..."
             let context = self.documentText
             
             do {
@@ -119,14 +142,14 @@ class AnalysisController: ObservableObject {
                     _ = try await session.respond(to: primingPrompt)
                 }
                 
-                let newSession = AnalysisSession(startLocation: location ?? 0, contextSummary: "", analyzedEdits: [])
-                self.document?.state.analysisSessions.append(newSession)
-                self.currentAnalysisSessionID = newSession.id
+                if self.currentAnalysisSessionID == nil {
+                    self.currentAnalysisSessionID = self.activeDocument?.state.analysisSessions.last?.id
+                }
                 
                 await jobProcessor.set(session: session)
                 
-                self.status = "Ready to analyze. Start typing."
-                print("✅ New session primed successfully. Session ID: \(newSession.id)")
+                self.status = "Ready."
+                print("✅ Live session primed successfully.")
                 
             } catch {
                 self.status = "Failed to create session."

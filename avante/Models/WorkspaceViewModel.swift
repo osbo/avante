@@ -10,10 +10,6 @@ import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 
-private enum UserDefaultsKeys {
-    static let workspaceBookmark = "workspaceBookmark"
-}
-
 @MainActor
 class WorkspaceViewModel: ObservableObject {
     @Published var rootItem: FileItem?
@@ -28,7 +24,14 @@ class WorkspaceViewModel: ObservableObject {
     }
     @Published var selectedFileForEditor: FileItem?
     
-    private var isPerformingManualFileOperation = false
+    private var documentCache: [URL: AvanteDocument] = [:]
+    
+    // FIX: This flag is now public so the AnalysisController can set it during saves.
+    var isPerformingManualFileOperation = false
+    
+    private enum UserDefaultsKeys {
+        static let workspaceBookmark = "workspaceBookmark"
+    }
     
     private var expandedItemURLs = Set<URL>()
     private var fileSystemMonitor = FileSystemMonitor()
@@ -49,11 +52,70 @@ class WorkspaceViewModel: ObservableObject {
                 print("Ignoring file system change due to manual operation.")
                 return
             }
-            print("File system change detected, refreshing tree.")
             self.refreshFileTree()
         }
     }
+
+    func getDocument(for fileItem: FileItem) -> AvanteDocument {
+        if let cachedDoc = documentCache[fileItem.url] {
+            print("Document for '\(fileItem.name)' found in cache.")
+            return cachedDoc
+        } else {
+            print("Loading document for '\(fileItem.name)' from disk.")
+            let newDoc = AvanteDocument(url: fileItem.url)
+            documentCache[fileItem.url] = newDoc
+            return newDoc
+        }
+    }
     
+    func markDocumentAsDirty(url: URL) {
+        if let item = findItem(by: url) {
+            if !item.isDirty {
+                item.isDirty = true
+                print("'\(item.name)' marked as dirty.")
+                objectWillChange.send()
+            }
+        }
+    }
+
+    func markDocumentAsClean(url: URL) {
+        if let item = findItem(by: url) {
+            if item.isDirty {
+                item.isDirty = false
+                print("'\(item.name)' marked as clean.")
+                objectWillChange.send()
+            }
+        }
+    }
+    
+    func refreshFileTree() {
+        print("Refreshing file tree...")
+        guard let root = rootItem else { return }
+        
+        // Preserve the selection and expansion state before rebuilding the tree.
+        let oldSelectionURL = selectedItem?.url
+        let expandedURLs = self.expandedItemURLs
+        
+        // Preserve the dirty state of all open files.
+        var dirtyStates: [URL: Bool] = [:]
+        for (url, doc) in documentCache {
+            if let item = findItem(by: url), item.isDirty {
+                dirtyStates[url] = true
+            }
+        }
+        
+        // Rebuild the file tree from scratch.
+        root.children = buildFileTree(from: root.url, parent: root)
+        
+        // Re-apply the preserved state to the new items.
+        self.expandedItemURLs = expandedURLs
+        if let oldURL = oldSelectionURL { selectFile(at: oldURL) }
+        dirtyStates.keys.forEach { markDocumentAsDirty(url: $0) }
+
+        objectWillChange.send()
+    }
+    
+    // ... other methods like openFileOrFolder, create, rename, delete, etc. remain the same ...
     func openFileOrFolder() {
         let panel = NSOpenPanel(); panel.canChooseFiles = true; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [UTType("com.example.vnt")!, .folder]
@@ -120,6 +182,11 @@ class WorkspaceViewModel: ObservableObject {
             do {
                 try await Task.detached { try FileManager.default.moveItem(at: oldURL, to: newURL) }.value
                 item.url = newURL
+
+                if let doc = documentCache.removeValue(forKey: oldURL) {
+                    doc.updateURL(to: newURL)
+                    documentCache[newURL] = doc
+                }
                 
                 refreshFileTree()
             } catch { print("Error renaming item: \(error)") }
@@ -138,6 +205,7 @@ class WorkspaceViewModel: ObservableObject {
         Task {
             do {
                 try await Task.detached { try FileManager.default.removeItem(at: urlToDelete) }.value
+                documentCache.removeValue(forKey: urlToDelete)
                 refreshFileTree()
             } catch { print("Error deleting item: \(error)") }
             
@@ -157,31 +225,17 @@ class WorkspaceViewModel: ObservableObject {
         }
         objectWillChange.send()
     }
-
-    // MARK: - Workspace and Tree Management
     private func setWorkspace(url: URL) {
         securityScopedURL?.stopAccessingSecurityScopedResource()
-        
         guard url.startAccessingSecurityScopedResource() else {
-            print("Failed to start accessing security-scoped resource. Check App Sandbox Entitlements.")
             return
         }
-        
         self.securityScopedURL = url
-        
         saveWorkspaceBookmark(url)
         self.rootItem = FileItem(url: url)
         self.rootItem?.isExpanded = true
         refreshFileTree()
         fileSystemMonitor.startMonitoring(path: url.path)
-    }
-
-    func refreshFileTree() {
-        guard let root = rootItem else { return }
-        let oldSelectionURL = selectedItem?.url
-        root.children = buildFileTree(from: root.url, parent: root)
-        objectWillChange.send()
-        if let oldURL = oldSelectionURL { selectFile(at: oldURL) }
     }
     
     private func buildFileTree(from url: URL, parent: FileItem?) -> [FileItem] {
@@ -203,7 +257,6 @@ class WorkspaceViewModel: ObservableObject {
         return items
     }
     
-    // MARK: - Helpers
     private func determineParent(for item: FileItem?) -> FileItem {
         guard let item = item else { return rootItem! }
         return item.isFolder ? item : item.parent ?? rootItem!
@@ -241,7 +294,6 @@ class WorkspaceViewModel: ObservableObject {
                 if isFolder {
                     try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false)
                 } else if let data = dataToSave {
-                    // Write the pre-encoded data from the background thread.
                     try data.write(to: newURL, options: .atomic)
                 }
                 return newURL
@@ -273,7 +325,6 @@ class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Bookmarking
     private func restoreWorkspace() {
         guard let bookmarkData = UserDefaults.standard.data(forKey: UserDefaultsKeys.workspaceBookmark) else { return }
         var isStale = false
