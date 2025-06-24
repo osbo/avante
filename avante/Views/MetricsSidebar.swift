@@ -31,7 +31,13 @@ struct MetricsSidebar: View {
             let hasAnalysis = !viewModel.document.file.analysis.isEmpty
             let error = viewModel.analysisError
 
-            if hasAnalysis {
+            if viewModel.isPriming {
+                ProgressView()
+                    .padding(.bottom, 8)
+                Text("Preparing Analysis Session...")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            } else if hasAnalysis {
                 // Show the most recent analysis group (by highest range.upperBound)
                 let latest = viewModel.document.file.analysis.max(by: { $0.range.upperBound < $1.range.upperBound })
                 if let latest = latest {
