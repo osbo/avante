@@ -99,6 +99,6 @@ class HighlightingLayoutManager: NSLayoutManager {
 
     private func colorFor(value: Double) -> NSColor {
         let hue = value * (120.0 / 360.0)
-        return NSColor(hue: hue, saturation: 0.9, brightness: 0.9, alpha: 0.65)
+        return NSColor(hue: hue, saturation: 0.9, brightness: 0.9, alpha: 0.5)
     }
 }

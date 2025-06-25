@@ -14,7 +14,7 @@ struct MetricsSidebar: View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: 5) {
+            VStack(spacing: 18) {
                 dial(for: .novelty)
                 dial(for: .clarity)
                 dial(for: .flow)
@@ -32,15 +32,21 @@ struct MetricsSidebar: View {
     @ViewBuilder
     private func dial(for type: MetricType) -> some View {
         let isActive = analysisController.activeHighlight == type
-        
-        RadialDial(
-            metric: analysisController.latestMetrics,
-            type: type
-        )
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
-        .background(isActive ? Color.accentColor.opacity(0.3) : Color.clear)
-        .cornerRadius(12)
+        ZStack {
+            // Always render the highlight, but hide it when inactive
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(nsColor: NSColor.unemphasizedSelectedContentBackgroundColor))
+                .frame(width: 140, height: 140)
+                .opacity(isActive ? 1 : 0)
+            RadialDial(
+                metric: analysisController.latestMetrics,
+                type: type
+            )
+            .frame(width: 100, height: 100)
+        }
+        .padding(.top, 18)
+        .padding(.horizontal, 18)
+        .padding(.bottom, 4)
         .contentShape(Rectangle())
         .onTapGesture {
             analysisController.toggleHighlight(for: type)
