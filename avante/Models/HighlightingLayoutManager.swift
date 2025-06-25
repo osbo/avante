@@ -71,7 +71,7 @@ class HighlightingLayoutManager: NSLayoutManager {
         
         return NSColor(
             hue: hue,
-            saturation: 0.7,
+            saturation: 0.9,
             brightness: 0.9,
             alpha: 0.6
         )

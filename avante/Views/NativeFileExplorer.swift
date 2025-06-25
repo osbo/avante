@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 
+// FileCellView definition remains unchanged
 fileprivate class FileCellView: NSTableCellView {
     let nameTextField = NSTextField(labelWithString: "")
     let iconImageView = NSImageView()
@@ -16,7 +17,6 @@ fileprivate class FileCellView: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         
-        // --- Configure Views ---
         iconImageView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
         
         nameTextField.isBezeled = false
@@ -28,26 +28,20 @@ fileprivate class FileCellView: NSTableCellView {
         dirtyIndicator.isBezeled = false
         dirtyIndicator.drawsBackground = false
         dirtyIndicator.isEditable = false
-        // FIX: Increase font size slightly for better visibility.
         dirtyIndicator.font = .systemFont(ofSize: 20)
         
-        // --- Add Subviews ---
         [iconImageView, nameTextField, dirtyIndicator].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
         
-        // --- Setup Auto Layout Constraints ---
         NSLayoutConstraint.activate([
             iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            
             nameTextField.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
             nameTextField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            
             dirtyIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             dirtyIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-            
             nameTextField.trailingAnchor.constraint(lessThanOrEqualTo: dirtyIndicator.leadingAnchor, constant: -4)
         ])
     }
@@ -66,7 +60,6 @@ fileprivate class FileCellView: NSTableCellView {
         }
         
         dirtyIndicator.isHidden = !item.isDirty
-        // FIX: Set color to match the standard label color (white/black).
         dirtyIndicator.textColor = .labelColor
     }
     
@@ -77,8 +70,6 @@ fileprivate class FileCellView: NSTableCellView {
     }
 }
 
-
-// ... The rest of the file (CustomOutlineView, NativeFileExplorer, and Coordinator) remains unchanged ...
 fileprivate class CustomOutlineView: NSOutlineView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = self.convert(event.locationInWindow, from: nil)
@@ -96,14 +87,25 @@ struct NativeFileExplorer: NSViewRepresentable {
         
         outlineView.dataSource = context.coordinator; outlineView.delegate = context.coordinator
         outlineView.headerView = nil; outlineView.style = .sourceList; outlineView.floatsGroupRows = false; outlineView.rowHeight = 28
+        
         let column = NSTableColumn(identifier: .init("column")); outlineView.addTableColumn(column); outlineView.outlineTableColumn = column
+        
         outlineView.target = context.coordinator; outlineView.doubleAction = #selector(Coordinator.doubleClickAction)
+        
         let menu = NSMenu(); menu.delegate = context.coordinator; outlineView.menu = menu
-        scrollView.documentView = outlineView; scrollView.hasVerticalScroller = true; scrollView.borderType = .noBorder
+        
+        scrollView.documentView = outlineView
+        scrollView.hasVerticalScroller = true
+        scrollView.borderType = .noBorder
+        
+        // FIX: Ensure the scroll bar is only shown when scrolling.
+        scrollView.autohidesScrollers = true
+        
         context.coordinator.outlineView = outlineView
         return scrollView
     }
     
+    // ... rest of NativeFileExplorer remains unchanged ...
     func makeCoordinator() -> Coordinator {
         return Coordinator(workspace: workspace)
     }

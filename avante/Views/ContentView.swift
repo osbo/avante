@@ -9,6 +9,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Combine
 
+import SwiftUI
+import UniformTypeIdentifiers
+import Combine
+
 struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
     @StateObject private var analysisController = AnalysisController()
@@ -22,23 +26,18 @@ struct ContentView: View {
             if workspace.rootItem != nil {
                 NavigationSplitView {
                     VStack(spacing: 0) {
-                        Text(workspace.rootItem?.name ?? "AVANTE")
+                        Text(workspace.rootItem?.name ?? "Avante")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(nsColor: .windowBackgroundColor))
                             .onTapGesture {
                                 workspace.selectedItem = nil
                             }
 
                         ZStack {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    workspace.selectedItem = nil
-                                }
+                            // The background is now handled by the parent
                             NativeFileExplorer(workspace: workspace)
                         }
                         
@@ -83,8 +82,15 @@ struct ContentView: View {
                     }
                 } detail: {
                     MetricsSidebar(analysisController: analysisController)
-                        .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+                        .background(
+                            RoundedRectangle(cornerRadius: 0, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .ignoresSafeArea()
+                        )
+                        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
                 }
+                // FIX: Apply a single, consistent background to the entire split view.
+                .background(Color(nsColor: .textBackgroundColor))
                 .ignoresSafeArea()
             } else {
                 WelcomeView(onOpen: workspace.openFileOrFolder)
@@ -126,6 +132,5 @@ struct WelcomeView: View {
             .tint(.green.opacity(0.8))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
     }
 }

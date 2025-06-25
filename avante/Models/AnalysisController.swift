@@ -34,6 +34,9 @@ class AnalysisController: ObservableObject {
     @Published private(set) var latestMetrics: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
+    // FIX: A publisher to signal when the editor should take focus.
+    let focusEditorSubject = PassthroughSubject<Void, Never>()
+
     private(set) var activeDocument: AvanteDocument?
     private(set) weak var workspace: WorkspaceViewModel?
 
@@ -67,6 +70,9 @@ class AnalysisController: ObservableObject {
 
         if self.activeDocument?.url == doc.url { return }
         
+        print("Sanitizing analysis data for '\(doc.url.lastPathComponent)' on load...")
+        doc.state.analysisSessions = doc.state.analysisSessions.map(resolveConflicts)
+        
         self.activeDocument = doc
         self.documentText = doc.state.fullText
         self.status = "Document loaded."
@@ -78,6 +84,10 @@ class AnalysisController: ObservableObject {
         guard let doc = activeDocument, let workspace = self.workspace else { return }
         
         workspace.isPerformingManualFileOperation = true
+        
+        print("Performing final conflict resolution before saving...")
+        doc.state.analysisSessions = doc.state.analysisSessions.map(resolveConflicts)
+        
         doc.state.fullText = self.documentText
         doc.save()
         workspace.markDocumentAsClean(url: doc.url)
@@ -93,12 +103,10 @@ class AnalysisController: ObservableObject {
         }
         
         Task {
-            // Await the session creation task to prevent a race condition on new files.
             _ = await sessionCreationTask?.result
             
             self.status = "Word queued..."
             
-            // FIX: Call the correct `queue` method on the stateful actor.
             await jobProcessor.queue(edit: edit) { result, processedEdits in
                 switch result {
                 case .success(let analysisResult):
@@ -117,7 +125,16 @@ class AnalysisController: ObservableObject {
                     
                     if let currentID = self.currentAnalysisSessionID,
                        let sessionIndex = self.activeDocument?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) {
+                        
+                        let newRange = NSRange(location: newAnalyzedEdit.range.lowerBound, length: newAnalyzedEdit.range.upperBound - newAnalyzedEdit.range.lowerBound)
+                        
+                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.removeAll { existingEdit in
+                            let existingRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
+                            return newRange.intersects(existingRange) || NSLocationInRange(newRange.location, existingRange)
+                        }
+                        
                         self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.append(newAnalyzedEdit)
+                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.sort { $0.range.lowerBound < $1.range.lowerBound }
                     }
                 
                 case .failure(let error):
@@ -129,6 +146,30 @@ class AnalysisController: ObservableObject {
                 }
             }
         }
+    }
+    
+    private func resolveConflicts(in session: AnalysisSession) -> AnalysisSession {
+        let sortedEdits = session.analyzedEdits.sorted { $0.timestamp > $1.timestamp }
+        var cleanedEdits: [AnalyzedEdit] = []
+        
+        for editToAdd in sortedEdits {
+            let nsRangeToAdd = NSRange(location: editToAdd.range.lowerBound, length: editToAdd.range.upperBound - editToAdd.range.lowerBound)
+            
+            let hasConflict = cleanedEdits.contains { existingEdit in
+                let existingNSRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
+                return nsRangeToAdd.intersects(existingNSRange)
+            }
+            
+            if !hasConflict {
+                cleanedEdits.append(editToAdd)
+            } else {
+                print("Discarding older, conflicting analysis for text: '\(editToAdd.text)'")
+            }
+        }
+        
+        var cleanedSession = session
+        cleanedSession.analyzedEdits = cleanedEdits.sorted { $0.range.lowerBound < $1.range.lowerBound }
+        return cleanedSession
     }
     
     private func createNewAnalysisSession(at location: Int? = nil) {
@@ -164,6 +205,9 @@ class AnalysisController: ObservableObject {
             
             self.status = "Ready."
             print("✅ Live session primed and set successfully.")
+            
+            // FIX: Send a signal that the editor is ready to be focused.
+            self.focusEditorSubject.send()
         }
     }
 }

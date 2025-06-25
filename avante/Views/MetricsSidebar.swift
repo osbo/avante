@@ -11,60 +11,36 @@ struct MetricsSidebar: View {
     @ObservedObject var analysisController: AnalysisController
     
     var body: some View {
-        VStack(spacing: 30) {
-            let status = analysisController.status
-            
-            if status.contains("Priming") {
-                ProgressView()
-                    .padding(.bottom, 8)
-                Text(status)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            } else if let latestMetrics = analysisController.latestMetrics {
-                dial(for: .novelty, metric: latestMetrics)
-                dial(for: .clarity, metric: latestMetrics)
-                dial(for: .flow, metric: latestMetrics)
-                
-                Spacer()
-                
-                if status == "Analyzing..." || status == "Word queued..." {
-                    ProgressView()
-                    Text(status)
-                       .foregroundStyle(.secondary)
-                       .padding(.bottom)
-                }
-                
-            } else {
-                 VStack {
-                    Image(systemName: "pencil.and.scribble")
-                        .font(.system(size: 60))
-                        .foregroundStyle(.tertiary)
-                    Text(status)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 5) {
+                dial(for: .novelty)
+                dial(for: .clarity)
+                dial(for: .flow)
             }
+            
+            Spacer()
+
+            StatusView(status: analysisController.status)
+                .padding(.bottom, 20)
         }
-        .padding(.top, 30)
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     @ViewBuilder
-    private func dial(for type: MetricType, metric: AnalysisMetricsGroup) -> some View {
+    private func dial(for type: MetricType) -> some View {
         let isActive = analysisController.activeHighlight == type
         
-        VStack {
-            RadialDial(metric: metric, type: type, title: type.rawValue.capitalized)
-        }
-        .padding(8)
+        RadialDial(
+            metric: analysisController.latestMetrics,
+            type: type
+        )
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .background(isActive ? Color.accentColor.opacity(0.3) : Color.clear)
         .cornerRadius(12)
-        // FIX: Make the entire rectangular area tappable.
         .contentShape(Rectangle())
         .onTapGesture {
             analysisController.toggleHighlight(for: type)
@@ -72,8 +48,87 @@ struct MetricsSidebar: View {
     }
 }
 
+private struct StatusView: View {
+    let status: String
+    
+    var body: some View {
+        let showProgress = status.contains("Priming") || status == "Analyzing..." || status == "Word queued..."
+        
+        HStack(spacing: 8) {
+            if showProgress {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(status)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+
 enum MetricType: String, Codable, Equatable {
     case novelty
     case clarity
     case flow
+}
+
+private struct RadialDial: View {
+    let metric: AnalysisMetricsGroup?
+    let type: MetricType
+    
+    private var title: String { type.rawValue.capitalized }
+    
+    private var value: Double {
+        guard let metric = metric else { return 0 }
+        switch type {
+        case .novelty: return metric.novelty
+        case .clarity: return metric.clarity
+        case .flow: return metric.flow
+        }
+    }
+    
+    private func colorForDial(value: Double) -> Color {
+        let hue = value * (120.0 / 360.0)
+        return Color(hue: hue, saturation: 0.85, brightness: 0.9, opacity: 1.0)
+    }
+    
+    @State private var animatedValue: Double = 0
+    
+    var body: some View {
+        ZStack {
+            // Background arc (full 270°)
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(Color.primary.opacity(0.1), style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                .rotationEffect(.degrees(135))
+
+            // Foreground (colored) arc, animated
+            Circle()
+                .trim(from: 0, to: 0.75 * animatedValue)
+                .stroke(
+                    metric != nil ? colorForDial(value: animatedValue) : Color.primary.opacity(0.2),
+                    style: StrokeStyle(lineWidth: 14, lineCap: .round)
+                )
+                .shadow(
+                    color: metric != nil ? colorForDial(value: animatedValue).opacity(0.65) : .clear,
+                    radius: 2,
+                    x: 0,
+                    y: 0
+                )
+                .rotationEffect(.degrees(135))
+                .animation(.easeInOut(duration: 0.4), value: animatedValue)
+            
+            Text(title)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+        }
+        .frame(width: 100, height: 100)
+        .onAppear { animatedValue = value }
+        .onChange(of: value) { newValue in
+            withAnimation(.easeInOut(duration: 0.4)) {
+                animatedValue = newValue
+            }
+        }
+    }
 }

@@ -32,6 +32,8 @@ struct AnalysisSession: Codable, Equatable, Identifiable {
 
 struct AnalyzedEdit: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
+    // FIX: Add a timestamp to every analysis result.
+    var timestamp: Date = Date()
     var range: CodableRange
     var text: String
     var analysisResult: AnalysisMetricsGroup
@@ -44,7 +46,6 @@ struct CodableRange: Codable, Equatable, Hashable {
 
 struct AnalysisMetricsGroup: Codable, Equatable, Hashable, Identifiable {
     var id: UUID = UUID()
-    // FIX: Renamed 'predictability' to 'novelty' for clarity and consistency.
     var novelty: Double
     var clarity: Double
     var flow: Double
@@ -57,8 +58,12 @@ class AvanteDocument: ObservableObject {
     init(url: URL) {
         self.url = url
         
+        // Use a JSONDecoder that can handle the new timestamp format.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
         if let data = try? Data(contentsOf: url),
-           let decodedState = try? JSONDecoder().decode(DocumentState.self, from: data) {
+           let decodedState = try? decoder.decode(DocumentState.self, from: data) {
             self.state = decodedState
             print("Successfully loaded document state from \(url.lastPathComponent)")
         } else {
@@ -76,6 +81,8 @@ class AvanteDocument: ObservableObject {
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
+            // Ensure dates are encoded in a standard, readable format.
+            encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(state)
             
             try data.write(to: url, options: .atomic)
