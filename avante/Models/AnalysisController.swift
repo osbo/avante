@@ -30,6 +30,7 @@ class AnalysisController: ObservableObject {
         }
     }
     
+    @Published private(set) var activeHighlight: MetricType? = nil
     @Published private(set) var latestMetrics: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
@@ -38,12 +39,24 @@ class AnalysisController: ObservableObject {
 
     private let jobProcessor = AnalysisJobProcessor()
     private var currentAnalysisSessionID: UUID?
+    private var sessionCreationTask: Task<Void, Error>?
+
+    func toggleHighlight(for metric: MetricType) {
+        if activeHighlight == metric {
+            activeHighlight = nil
+        } else {
+            activeHighlight = metric
+        }
+        print("Toggled highlight. Active: \(activeHighlight?.rawValue ?? "none")")
+    }
 
     func setWorkspace(_ workspace: WorkspaceViewModel) {
         self.workspace = workspace
     }
 
     func loadDocument(document: AvanteDocument?) {
+        activeHighlight = nil
+        
         guard let doc = document else {
             self.activeDocument = nil
             self.documentText = ""
@@ -58,20 +71,17 @@ class AnalysisController: ObservableObject {
         self.documentText = doc.state.fullText
         self.status = "Document loaded."
         
-        resetLiveSession()
+        createNewAnalysisSession()
     }
 
     func saveDocument() {
         guard let doc = activeDocument, let workspace = self.workspace else { return }
-
-        // FIX: Tell the workspace we are about to perform a manual file operation.
-        workspace.isPerformingManualFileOperation = true
         
+        workspace.isPerformingManualFileOperation = true
         doc.state.fullText = self.documentText
         doc.save()
         workspace.markDocumentAsClean(url: doc.url)
         
-        // After a short delay, allow file system events to be processed again.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             workspace.isPerformingManualFileOperation = false
         }
@@ -83,8 +93,12 @@ class AnalysisController: ObservableObject {
         }
         
         Task {
+            // Await the session creation task to prevent a race condition on new files.
+            _ = await sessionCreationTask?.result
+            
             self.status = "Word queued..."
             
+            // FIX: Call the correct `queue` method on the stateful actor.
             await jobProcessor.queue(edit: edit) { result, processedEdits in
                 switch result {
                 case .success(let analysisResult):
@@ -128,39 +142,34 @@ class AnalysisController: ObservableObject {
     }
     
     private func resetLiveSession() {
-        Task { await jobProcessor.reset() }
-        
-        Task {
+        sessionCreationTask = Task {
             self.status = "Priming session..."
             let context = self.documentText
             
-            do {
-                let session = LanguageModelSession(instructions: Instructions.analysis)
-                
-                if !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let primingPrompt = Prompt("Here is the document's full context. Process it and prepare for incremental analysis prompts: \n---\n\(context)\n---")
-                    _ = try await session.respond(to: primingPrompt)
-                }
-                
-                if self.currentAnalysisSessionID == nil {
-                    self.currentAnalysisSessionID = self.activeDocument?.state.analysisSessions.last?.id
-                }
-                
-                await jobProcessor.set(session: session)
-                
-                self.status = "Ready."
-                print("✅ Live session primed successfully.")
-                
-            } catch {
-                self.status = "Failed to create session."
-                print("❌ Error creating new session: \(error)")
+            try await jobProcessor.reset()
+            
+            let instructions = Instructions(Prompting.analysisInstructions)
+            let session = LanguageModelSession(instructions: instructions)
+            
+            if !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let primingPrompt = Prompt("Here is the document's full context. Process it and prepare for incremental analysis prompts: \n---\n\(context)\n---")
+                _ = try await session.respond(to: primingPrompt)
             }
+            
+            if self.currentAnalysisSessionID == nil {
+                self.currentAnalysisSessionID = self.activeDocument?.state.analysisSessions.last?.id
+            }
+            
+            try await jobProcessor.set(session: session)
+            
+            self.status = "Ready."
+            print("✅ Live session primed and set successfully.")
         }
     }
 }
 
-private extension Instructions {
-    static let analysis = Instructions("""
-    You are a writing analyst. For each text chunk, provide scores for Predictability, Clarity, and Flow from 0.0 to 1.0. Respond ONLY with the generable JSON for AnalysisMetricsGroup.
-    """)
+private enum Prompting {
+    static let analysisInstructions = """
+    You are a writing analyst. For each text chunk, provide scores for Novelty, Clarity, and Flow. Respond ONLY with the generable JSON for AnalysisMetricsResponse. Use a scale where 0.00 is the lowest/worst score and 1.00 is the highest/best.
+    """
 }

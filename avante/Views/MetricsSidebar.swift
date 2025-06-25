@@ -21,9 +21,10 @@ struct MetricsSidebar: View {
                     .font(.headline)
                     .foregroundStyle(.secondary)
             } else if let latestMetrics = analysisController.latestMetrics {
-                RadialDial(metric: latestMetrics, type: .predictability, title: "Predictability")
-                RadialDial(metric: latestMetrics, type: .clarity, title: "Clarity")
-                RadialDial(metric: latestMetrics, type: .flow, title: "Flow")
+                dial(for: .novelty, metric: latestMetrics)
+                dial(for: .clarity, metric: latestMetrics)
+                dial(for: .flow, metric: latestMetrics)
+                
                 Spacer()
                 
                 if status == "Analyzing..." || status == "Word queued..." {
@@ -51,10 +52,28 @@ struct MetricsSidebar: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+    
+    @ViewBuilder
+    private func dial(for type: MetricType, metric: AnalysisMetricsGroup) -> some View {
+        let isActive = analysisController.activeHighlight == type
+        
+        VStack {
+            RadialDial(metric: metric, type: type, title: type.rawValue.capitalized)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity)
+        .background(isActive ? Color.accentColor.opacity(0.3) : Color.clear)
+        .cornerRadius(12)
+        // FIX: Make the entire rectangular area tappable.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            analysisController.toggleHighlight(for: type)
+        }
+    }
 }
 
 enum MetricType: String, Codable, Equatable {
-    case predictability
+    case novelty
     case clarity
     case flow
 }

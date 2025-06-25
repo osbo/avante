@@ -22,7 +22,7 @@ struct DocumentState: Codable, Equatable {
 struct AnalysisSession: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var startLocation: Int
-    var contextSummary: String // For future use with large documents
+    var contextSummary: String
     var analyzedEdits: [AnalyzedEdit]
 
     static func == (lhs: AnalysisSession, rhs: AnalysisSession) -> Bool {
@@ -44,7 +44,8 @@ struct CodableRange: Codable, Equatable, Hashable {
 
 struct AnalysisMetricsGroup: Codable, Equatable, Hashable, Identifiable {
     var id: UUID = UUID()
-    var predictability: Double
+    // FIX: Renamed 'predictability' to 'novelty' for clarity and consistency.
+    var novelty: Double
     var clarity: Double
     var flow: Double
 }

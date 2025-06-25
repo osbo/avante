@@ -17,7 +17,7 @@ struct RadialDial: View {
     
     private var value: Double {
         switch type {
-        case .predictability: return metric.predictability
+        case .novelty: return metric.novelty
         case .clarity: return metric.clarity
         case .flow: return metric.flow
         }
@@ -37,7 +37,7 @@ struct RadialDial: View {
                     path.addArc(center: CGPoint(x: 50, y: 50), radius: 40, startAngle: startAngle, endAngle: valueAngle, clockwise: false)
                 }
                 .stroke(style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                .foregroundColor(Color.green)
+                .foregroundColor(Color.green) // This color could be updated based on value too
                 
                 Text(String(format: "%.0f", value*100))
                     .font(.system(size: 20, weight: .bold, design: .monospaced))

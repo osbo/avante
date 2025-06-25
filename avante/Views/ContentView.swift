@@ -83,7 +83,7 @@ struct ContentView: View {
                     }
                 } detail: {
                     MetricsSidebar(analysisController: analysisController)
-                        .navigationSplitViewColumnWidth(min: 240, ideal: 280)
+                        .navigationSplitViewColumnWidth(min: 180, ideal: 200)
                 }
                 .ignoresSafeArea()
             } else {

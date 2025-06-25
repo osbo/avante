@@ -60,15 +60,14 @@ actor AnalysisJobProcessor {
                 let prompt = Prompt("Analyze the following text chunk: \"\(chunkToAnalyze)\"")
                 let response = try await session.respond(to: prompt, generating: AnalysisMetricsResponse.self)
                 
-                let p = min(max(response.content.predictabilityScore, 0.0), 1.0)
-                let c = min(max(response.content.clarityScore, 0.0), 1.0)
-                let f = min(max(response.content.flowScore, 0.0), 1.0)
-                
-                let metrics = AnalysisMetricsGroup(predictability: p, clarity: c, flow: f)
-                
-                // FIX: Manually construct the description string to avoid actor-isolation issues.
                 let content = response.content
-                let descriptionString = "P: \(content.predictabilityScore), C: \(content.clarityScore), F: \(content.flowScore)"
+                let n = min(max(content.noveltyScore, 0.0), 1.0)
+                let c = min(max(content.clarityScore, 0.0), 1.0)
+                let f = min(max(content.flowScore, 0.0), 1.0)
+                
+                let metrics = AnalysisMetricsGroup(novelty: n, clarity: c, flow: f)
+                
+                let descriptionString = "N: \(content.noveltyScore), C: \(content.clarityScore), F: \(content.flowScore)"
                 let result = AnalysisResult(metrics: metrics, rawResponse: descriptionString)
 
                 await onResult(.success(result), editsToProcess)
@@ -88,16 +87,16 @@ struct AnalysisResult {
 
 @Generable
 struct AnalysisMetricsResponse: CustomStringConvertible {
-    @Guide(description: "A score from 0.0 (highly predictable) to 1.0 (highly original).")
-    var predictabilityScore: Double
+    @Guide(description: "A score from 0.00 (very predictable/cliche) to 1.00 (highly novel/original).")
+    var noveltyScore: Double
     
-    @Guide(description: "A score from 0.0 (very confusing) to 1.0 (perfectly clear).")
+    @Guide(description: "A score from 0.00 (very confusing) to 1.00 (perfectly clear).")
     var clarityScore: Double
     
-    @Guide(description: "A score from 0.0 (disjointed) to 1.0 (flows very well).")
+    @Guide(description: "A score from 0.00 (disjointed) to 1.00 (flows very well).")
     var flowScore: Double
     
     var description: String {
-        "P: \(predictabilityScore), C: \(clarityScore), F: \(flowScore)"
+        "N: \(noveltyScore), C: \(clarityScore), F: \(flowScore)"
     }
 }

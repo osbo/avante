@@ -98,7 +98,7 @@ class WorkspaceViewModel: ObservableObject {
         
         // Preserve the dirty state of all open files.
         var dirtyStates: [URL: Bool] = [:]
-        for (url, doc) in documentCache {
+        for (url, _) in documentCache {
             if let item = findItem(by: url), item.isDirty {
                 dirtyStates[url] = true
             }
