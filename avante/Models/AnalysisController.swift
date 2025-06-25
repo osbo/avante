@@ -34,7 +34,6 @@ class AnalysisController: ObservableObject {
     @Published private(set) var latestMetrics: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
-    // FIX: A publisher to signal when the editor should take focus.
     let focusEditorSubject = PassthroughSubject<Void, Never>()
 
     private(set) var activeDocument: AvanteDocument?
@@ -59,6 +58,7 @@ class AnalysisController: ObservableObject {
 
     func loadDocument(document: AvanteDocument?) {
         activeHighlight = nil
+        Task { await jobProcessor.clearQueue() }
         
         guard let doc = document else {
             self.activeDocument = nil
@@ -70,8 +70,7 @@ class AnalysisController: ObservableObject {
 
         if self.activeDocument?.url == doc.url { return }
         
-        print("Sanitizing analysis data for '\(doc.url.lastPathComponent)' on load...")
-        doc.state.analysisSessions = doc.state.analysisSessions.map(resolveConflicts)
+        doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
         
         self.activeDocument = doc
         self.documentText = doc.state.fullText
@@ -84,10 +83,7 @@ class AnalysisController: ObservableObject {
         guard let doc = activeDocument, let workspace = self.workspace else { return }
         
         workspace.isPerformingManualFileOperation = true
-        
-        print("Performing final conflict resolution before saving...")
-        doc.state.analysisSessions = doc.state.analysisSessions.map(resolveConflicts)
-        
+        doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
         doc.state.fullText = self.documentText
         doc.save()
         workspace.markDocumentAsClean(url: doc.url)
@@ -118,36 +114,41 @@ class AnalysisController: ObservableObject {
                     let combinedText = processedEdits.map(\.textAdded).joined(separator: " ")
 
                     let newAnalyzedEdit = AnalyzedEdit(
-                        range: CodableRange(lowerBound: combinedRange.location, upperBound: NSMaxRange(combinedRange)),
+                        range: CodableRange(from: combinedRange),
                         text: combinedText,
                         analysisResult: analysisResult.metrics
                     )
                     
-                    if let currentID = self.currentAnalysisSessionID,
-                       let sessionIndex = self.activeDocument?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) {
-                        
-                        let newRange = NSRange(location: newAnalyzedEdit.range.lowerBound, length: newAnalyzedEdit.range.upperBound - newAnalyzedEdit.range.lowerBound)
-                        
-                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.removeAll { existingEdit in
-                            let existingRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-                            return newRange.intersects(existingRange) || NSLocationInRange(newRange.location, existingRange)
-                        }
-                        
-                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.append(newAnalyzedEdit)
-                        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.sort { $0.range.lowerBound < $1.range.lowerBound }
-                    }
+                    self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
                 
                 case .failure(let error):
                     self.status = "Analysis failed."
                     if String(describing: error).contains("Context length") {
-                        print("🚨 Context overflow detected! Automatically resetting session.")
-                        self.createNewAnalysisSession(at: edit.range.location)
+                        print("🚨 Context overflow detected! Resetting session.")
+                        // The actor has already re-queued the failed edits.
+                        // We just need to create a new session.
+                        self.resetLiveSession()
                     }
                 }
             }
         }
     }
     
+    private func resolveConflictsByAdding(newEdit: AnalyzedEdit) {
+        guard let currentID = self.currentAnalysisSessionID,
+              let sessionIndex = self.activeDocument?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) else { return }
+        
+        let newRange = NSRange(location: newEdit.range.lowerBound, length: newEdit.range.upperBound - newEdit.range.lowerBound)
+        
+        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.removeAll { existingEdit in
+            let existingRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
+            return NSIntersectionRange(newRange, existingRange).length > 0 || NSLocationInRange(newRange.location, existingRange)
+        }
+        
+        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.append(newEdit)
+        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.sort { $0.range.lowerBound < $1.range.lowerBound }
+    }
+
     private func resolveConflicts(in session: AnalysisSession) -> AnalysisSession {
         let sortedEdits = session.analyzedEdits.sorted { $0.timestamp > $1.timestamp }
         var cleanedEdits: [AnalyzedEdit] = []
@@ -157,13 +158,11 @@ class AnalysisController: ObservableObject {
             
             let hasConflict = cleanedEdits.contains { existingEdit in
                 let existingNSRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-                return nsRangeToAdd.intersects(existingNSRange)
+                return NSIntersectionRange(nsRangeToAdd, existingNSRange).length > 0
             }
             
             if !hasConflict {
                 cleanedEdits.append(editToAdd)
-            } else {
-                print("Discarding older, conflicting analysis for text: '\(editToAdd.text)'")
             }
         }
         
@@ -185,10 +184,10 @@ class AnalysisController: ObservableObject {
     private func resetLiveSession() {
         sessionCreationTask = Task {
             self.status = "Priming session..."
+            
+            await jobProcessor.resetSessionState()
+            
             let context = self.documentText
-            
-            try await jobProcessor.reset()
-            
             let instructions = Instructions(Prompting.analysisInstructions)
             let session = LanguageModelSession(instructions: instructions)
             
@@ -201,12 +200,10 @@ class AnalysisController: ObservableObject {
                 self.currentAnalysisSessionID = self.activeDocument?.state.analysisSessions.last?.id
             }
             
-            try await jobProcessor.set(session: session)
+            await jobProcessor.set(session: session)
             
             self.status = "Ready."
             print("✅ Live session primed and set successfully.")
-            
-            // FIX: Send a signal that the editor is ready to be focused.
             self.focusEditorSubject.send()
         }
     }
@@ -216,4 +213,11 @@ private enum Prompting {
     static let analysisInstructions = """
     You are a writing analyst. For each text chunk, provide scores for Novelty, Clarity, and Flow. Respond ONLY with the generable JSON for AnalysisMetricsResponse. Use a scale where 0.00 is the lowest/worst score and 1.00 is the highest/best.
     """
+}
+
+extension CodableRange {
+    init(from nsRange: NSRange) {
+        self.lowerBound = nsRange.location
+        self.upperBound = NSMaxRange(nsRange)
+    }
 }

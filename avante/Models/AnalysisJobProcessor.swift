@@ -2,7 +2,7 @@
 //  AnalysisJobProcessor.swift
 //  avante
 //
-//  Created by Carl Osborne on 6/24/25.
+//  Created by Carl Osborne on 6/25/25.
 //
 
 import Foundation
@@ -12,27 +12,35 @@ actor AnalysisJobProcessor {
     private var editQueue: [Edit] = []
     private var isProcessing = false
     private var activeSession: LanguageModelSession?
+    
+    private var lastOnResult: (@MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void)?
 
     func set(session: LanguageModelSession) {
         self.activeSession = session
         print("✅ AnalysisJobProcessor received new session.")
+        processQueueIfNeeded()
     }
-
-    func reset() {
-        self.editQueue.removeAll()
+    
+    func resetSessionState() {
         self.isProcessing = false
         self.activeSession = nil
-        print("⚙️ AnalysisJobProcessor has been reset.")
+        print("⚙️ AnalysisJobProcessor session state has been reset.")
+    }
+    
+    func clearQueue() {
+        self.editQueue.removeAll()
+        print("➡️ Queue cleared.")
     }
 
     func queue(edit: Edit, onResult: @escaping @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void) {
         editQueue.append(edit)
+        self.lastOnResult = onResult
         print("➡️ Queued word: '\(edit.textAdded)'. Current queue size: \(editQueue.count)")
-        processQueueIfNeeded(onResult: onResult)
+        processQueueIfNeeded()
     }
 
-    private func processQueueIfNeeded(onResult: @escaping @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void) {
-        guard !isProcessing, !editQueue.isEmpty, let session = activeSession else {
+    private func processQueueIfNeeded() {
+        guard !isProcessing, !editQueue.isEmpty, let session = activeSession, let onResult = self.lastOnResult else {
             return
         }
 
@@ -53,7 +61,7 @@ actor AnalysisJobProcessor {
         Task {
             defer {
                 isProcessing = false
-                processQueueIfNeeded(onResult: onResult)
+                processQueueIfNeeded()
             }
             
             do {
@@ -74,6 +82,12 @@ actor AnalysisJobProcessor {
                 
             } catch {
                 print("❌ Actor processing failed: \(error)")
+                
+                // FIX: When an error occurs, put the failed edits back at the front of the queue
+                // to be re-processed by the next available session.
+                self.editQueue.insert(contentsOf: editsToProcess, at: 0)
+                print("📦 Edits re-queued for next session. Queue size: \(self.editQueue.count)")
+                
                 await onResult(.failure(error), editsToProcess)
             }
         }
