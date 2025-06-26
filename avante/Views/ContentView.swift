@@ -9,17 +9,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Combine
 
-import SwiftUI
-import UniformTypeIdentifiers
-import Combine
-
 struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
     @StateObject private var analysisController = AnalysisController()
     @AppStorage("activeHighlight") private var activeHighlightRaw: String = ""
+    @Binding var isFocusModeEnabled: Bool
     
-    init(workspace: WorkspaceViewModel) {
+    init(workspace: WorkspaceViewModel, isFocusModeEnabled: Binding<Bool>) {
         self.workspace = workspace
+        self._isFocusModeEnabled = isFocusModeEnabled
     }
 
     var body: some View {
@@ -116,6 +114,7 @@ struct ContentView: View {
         }
         .onAppear {
             analysisController.setWorkspace(workspace)
+            analysisController.isFocusModeEnabled = isFocusModeEnabled
         }
         .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
             guard let item = newFileItem else {
@@ -125,8 +124,11 @@ struct ContentView: View {
             let documentToLoad = workspace.getDocument(for: item)
             analysisController.loadDocument(document: documentToLoad)
         }
-        .onChange(of: activeHighlightRaw) { newValue in
+        .onChange(of: activeHighlightRaw) { _, newValue in
             analysisController.activeHighlight = MetricType(rawValue: newValue)
+        }
+        .onChange(of: isFocusModeEnabled) { _, newValue in
+            analysisController.isFocusModeEnabled = newValue
         }
     }
 }

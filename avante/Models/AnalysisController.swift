@@ -37,6 +37,11 @@ class AnalysisController: ObservableObject {
     }
     @Published private(set) var metricsForDisplay: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
+    
+    // NEW: State for Focus Mode
+    @Published var isFocusModeEnabled: Bool = false
+    @Published var isMouseStationary = true
+    @Published var textViewSelectionRange = NSRange(location: 0, length: 0)
 
     let focusEditorSubject = PassthroughSubject<Void, Never>()
 
@@ -47,6 +52,29 @@ class AnalysisController: ObservableObject {
     private var currentAnalysisSessionID: UUID?
     private var sessionCreationTask: Task<Void, Error>?
     private var latestGeneratedMetrics: AnalysisMetricsGroup?
+    
+    private var mouseStationaryTimer: AnyCancellable?
+    private let mouseStationaryDelay = 0.8 // seconds
+
+    func mouseDidMove() {
+        if isMouseStationary {
+            isMouseStationary = false
+        }
+        
+        mouseStationaryTimer?.cancel()
+        mouseStationaryTimer = Just(())
+            .delay(for: .seconds(mouseStationaryDelay), scheduler: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.isMouseStationary = true
+            }
+    }
+    
+    func mouseDidExit() {
+        mouseStationaryTimer?.cancel()
+        if !isMouseStationary {
+            isMouseStationary = true
+        }
+    }
 
     func toggleHighlight(for metric: MetricType) {
         if activeHighlight == metric {
@@ -127,7 +155,7 @@ class AnalysisController: ObservableObject {
                     )
                     
                     self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
-                
+            
                 case .failure(let error):
                     self.status = "Analysis failed."
                     if String(describing: error).contains("Context length") {
@@ -231,7 +259,7 @@ class AnalysisController: ObservableObject {
 
 private enum Prompting {
     static let analysisInstructions = """
-    You are a writing analyst. For each text chunk, provide scores for Novelty, Clarity, and Flow. Respond ONLY with the generable JSON for AnalysisMetricsResponse. Use a scale where 0.00 is the lowest/worst score and 1.00 is the highest/best.
+    You are a writing analyst. For each text chunk, provide scores for Novelty, Clarity, and Flow. Respond ONLY with the generable JSON for AnalysisMetricsResponse. Use a a scale where 0.00 is the lowest/worst score and 1.00 is the highest/best.
     """
 }
 

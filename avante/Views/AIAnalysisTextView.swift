@@ -1,6 +1,57 @@
+//
+//  AIAnalysisTextView.swift
+//  avante
+//
+//  Created by Carl Osborne on 6/24/25.
+//
+
 import SwiftUI
 import AppKit
 import Combine
+
+fileprivate extension String {
+    func sentenceRange(for location: Int) -> NSRange {
+        var sentenceRange = NSRange(location: location, length: 0)
+        guard location <= self.count else { return sentenceRange }
+        
+        let targetIndex = self.index(self.startIndex, offsetBy: location, limitedBy: self.endIndex) ?? self.endIndex
+
+        self.enumerateSubstrings(in: self.startIndex..<self.endIndex, options: [.bySentences, .localized]) { (substring, substringRange, enclosingRange, stop) in
+            // Check if the cursor is within the sentence, or at the very end of it.
+            if substringRange.contains(targetIndex) || (substringRange.upperBound == targetIndex && !substringRange.isEmpty) {
+                sentenceRange = NSRange(substringRange, in: self)
+                stop = true
+            }
+        }
+        return sentenceRange
+    }
+}
+
+// Custom NSTextView subclass to handle mouse events correctly
+fileprivate class FocusAwareTextView: NSTextView {
+    weak var analysisController: AnalysisController?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        
+        self.trackingAreas.forEach { self.removeTrackingArea($0) }
+        
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow]
+        let trackingArea = NSTrackingArea(rect: self.bounds, options: options, owner: self, userInfo: nil)
+        self.addTrackingArea(trackingArea)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        analysisController?.mouseDidMove()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        analysisController?.mouseDidExit()
+    }
+}
+
 
 struct AIAnalysisTextView: NSViewRepresentable {
     @Binding var text: String
@@ -8,7 +59,9 @@ struct AIAnalysisTextView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let textView = NSTextView()
+        let textView = FocusAwareTextView()
+        
+        textView.analysisController = context.coordinator.controller
         
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
@@ -21,7 +74,8 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.font = NSFont(name: "SF Pro Text", size: 16)
-        textView.textColor = .textColor
+        // This sets the default color and ensures it adapts to the theme.
+        textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.isEditable = true
         textView.isSelectable = true
@@ -37,7 +91,6 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textStorage.addLayoutManager(highlightingLayoutManager)
         highlightingLayoutManager.addTextContainer(textContainer)
         
-        // The coordinator needs to be the delegate for both text changes and selection changes.
         textStorage.delegate = context.coordinator
         textView.delegate = context.coordinator
         
@@ -68,6 +121,8 @@ struct AIAnalysisTextView: NSViewRepresentable {
         layoutManager.analysisData = allEdits
         layoutManager.activeHighlight = analysisController.activeHighlight
         
+        context.coordinator.updateFocus(on: textView)
+        
         if let textContainer = textView.textContainer {
             let visibleRect = nsView.documentVisibleRect
             let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
@@ -79,7 +134,6 @@ struct AIAnalysisTextView: NSViewRepresentable {
         Coordinator(parent: self, controller: analysisController)
     }
 
-    // FIX: Coordinator now also conforms to NSTextViewDelegate to hear about selection changes.
     class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         var parent: AIAnalysisTextView
         var controller: AnalysisController
@@ -106,11 +160,61 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 .store(in: &cancellables)
         }
         
-        // FIX: This delegate method is called whenever the cursor moves.
+        // MARK: - Focus Mode Handling
+        
+        func updateFocus(on textView: NSTextView) {
+            guard let textStorage = textView.textStorage else { return }
+
+            let shouldDim = controller.isFocusModeEnabled &&
+                            controller.isMouseStationary &&
+                            controller.textViewSelectionRange.length == 0 &&
+                            controller.activeHighlight == nil
+
+            let fullRange = NSRange(location: 0, length: textStorage.length)
+            
+            // Get the correct, theme-aware default color from the text view itself.
+            let defaultColor = NSColor.labelColor
+            let dimmedColor = NSColor.tertiaryLabelColor
+
+            let sentenceRange: NSRange
+            if shouldDim {
+                sentenceRange = textStorage.string.sentenceRange(for: controller.textViewSelectionRange.location)
+            } else {
+                sentenceRange = fullRange
+            }
+            
+            // Directly apply attributes without animation for now.
+            textStorage.beginEditing()
+            
+            // First, remove all custom foreground color attributes to reset to the view's default.
+            textStorage.removeAttribute(.foregroundColor, range: fullRange)
+            // Always set the entire range to .labelColor
+            textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: fullRange)
+
+            if shouldDim {
+                // Only apply the dimmed color to the ranges outside the focused sentence.
+                if sentenceRange.location > 0 {
+                    let beforeRange = NSRange(location: 0, length: sentenceRange.location)
+                    textStorage.addAttribute(.foregroundColor, value: dimmedColor, range: beforeRange)
+                }
+                let afterLocation = NSMaxRange(sentenceRange)
+                if afterLocation < fullRange.length {
+                    let afterRange = NSRange(location: afterLocation, length: fullRange.length - afterLocation)
+                    textStorage.addAttribute(.foregroundColor, value: dimmedColor, range: afterRange)
+                }
+            }
+            
+            textStorage.endEditing()
+        }
+
+        // MARK: - Delegate Methods
+        
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            
+            controller.textViewSelectionRange = textView.selectedRange()
+            
             let cursorPosition = textView.selectedRange().location
-            // Report the new position to the controller so it can update the dials.
             controller.updateMetricsForCursor(at: cursorPosition)
         }
 

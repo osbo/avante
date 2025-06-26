@@ -13,11 +13,12 @@ import Combine
 struct avanteApp: App {
     @StateObject private var workspace = WorkspaceViewModel()
     @AppStorage("activeHighlight") private var activeHighlightRaw: String = ""
+    @AppStorage("isFocusModeEnabled") private var isFocusModeEnabled: Bool = false
 
     var body: some Scene {
         let currentHighlight = MetricType(rawValue: activeHighlightRaw)
         return WindowGroup {
-            ContentView(workspace: workspace)
+            ContentView(workspace: workspace, isFocusModeEnabled: $isFocusModeEnabled)
                 .onOpenURL { url in
                     // FIX: The method was renamed from 'openFile' to 'open'.
                     // This is the corrected method call.
@@ -63,6 +64,14 @@ struct avanteApp: App {
             
             // View Menu with dial functionality
             CommandMenu("View") {
+                Toggle(
+                    "Focus Mode",
+                    isOn: $isFocusModeEnabled
+                )
+                .keyboardShortcut("e", modifiers: .command)
+                
+                Divider()
+                
                 HighlightMenuItems(activeHighlightRaw: $activeHighlightRaw)
             }
             
