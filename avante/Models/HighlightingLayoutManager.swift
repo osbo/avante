@@ -33,15 +33,13 @@ class HighlightingLayoutManager: NSLayoutManager {
             let startColor = colorFor(value: scoreFor(metric: activeHighlight, in: edit.analysisResult))
             let endColor = colorFor(value: scoreFor(metric: activeHighlight, in: nextEdit.analysisResult))
             
-            // Case 1: The chunks are separated by a single space.
-            if currentRange.upperBound + 1 == nextRange.location {
-                let spaceRange = NSRange(location: currentRange.upperBound, length: 1)
-                drawGradient(from: startColor, to: endColor, in: spaceRange, at: origin)
-            }
-            // Case 2: The chunks are immediately adjacent (no space).
-            else if currentRange.upperBound == nextRange.location {
+            if currentRange.upperBound == nextRange.location {
                 let firstCharRange = NSRange(location: nextRange.location, length: 1)
                 drawGradient(from: startColor, to: endColor, in: firstCharRange, at: origin)
+            }
+            else if currentRange.upperBound < nextRange.location {
+                let spaceRange = NSRange(location: currentRange.upperBound, length: nextRange.location - currentRange.upperBound)
+                drawGradient(from: startColor, to: endColor, in: spaceRange, at: origin)
             }
         }
     }
