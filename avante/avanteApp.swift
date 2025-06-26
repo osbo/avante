@@ -40,6 +40,17 @@ struct avanteApp: App {
                 }
                 .keyboardShortcut("s", modifiers: .command)
             }
+            CommandMenu("Navigation") {
+                Button("Next File") {
+                    workspace.selectNextFile()
+                }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                
+                Button("Previous File") {
+                    workspace.selectPreviousFile()
+                }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+            }
         }
     }
 }

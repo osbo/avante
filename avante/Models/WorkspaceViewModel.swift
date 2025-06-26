@@ -345,6 +345,50 @@ class WorkspaceViewModel: ObservableObject {
             print("Failed to save workspace bookmark: \(error)")
         }
     }
+    
+    private func getVisibleFileUrls() -> [URL] {
+        var visibleUrls: [URL] = []
+        
+        func traverse(item: FileItem?) {
+            guard let item = item else { return }
+            if !item.isFolder {
+                visibleUrls.append(item.url)
+            } else if item.isExpanded, let children = item.children {
+                for child in children {
+                    traverse(item: child)
+                }
+            }
+        }
+        
+        traverse(item: self.rootItem)
+        return visibleUrls
+    }
+
+    func selectNextFile() {
+        let visibleFiles = getVisibleFileUrls()
+        guard !visibleFiles.isEmpty, let currentUrl = self.selectedFileForEditor?.url else { return }
+        
+        if let currentIndex = visibleFiles.firstIndex(of: currentUrl) {
+            let nextIndex = (currentIndex + 1) % visibleFiles.count
+            let nextUrl = visibleFiles[nextIndex]
+            if let nextItem = findItem(by: nextUrl) {
+                self.selectedItem = nextItem
+            }
+        }
+    }
+
+    func selectPreviousFile() {
+        let visibleFiles = getVisibleFileUrls()
+        guard !visibleFiles.isEmpty, let currentUrl = self.selectedFileForEditor?.url else { return }
+        
+        if let currentIndex = visibleFiles.firstIndex(of: currentUrl) {
+            let prevIndex = (currentIndex - 1 + visibleFiles.count) % visibleFiles.count
+            let prevUrl = visibleFiles[prevIndex]
+            if let prevItem = findItem(by: prevUrl) {
+                self.selectedItem = prevItem
+            }
+        }
+    }
 }
 
 fileprivate class FileSystemMonitor {

@@ -15,9 +15,9 @@ struct MetricsSidebar: View {
             Spacer()
 
             VStack(spacing: 0) {
-                dial(for: .novelty)
                 dial(for: .clarity)
                 dial(for: .flow)
+                dial(for: .novelty)
             }
             
             Spacer()
