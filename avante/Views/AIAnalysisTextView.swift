@@ -1,9 +1,4 @@
-//
-//  AIAnalysisTextView.swift
-//  avante
-//
-//  Created by Carl Osborne on 6/24/25.
-//
+
 
 import SwiftUI
 import AppKit
@@ -22,8 +17,6 @@ struct AIAnalysisTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.documentView = textView
         
-        // FIX: The background is now controlled by the parent SwiftUI view.
-        scrollView.drawsBackground = false
         textView.drawsBackground = false
         
         textView.autoresizingMask = [.width, .height]
@@ -46,14 +39,16 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textStorage.addLayoutManager(highlightingLayoutManager)
         highlightingLayoutManager.addTextContainer(textContainer)
         
+        // The coordinator needs to be the delegate for both text changes and selection changes.
         textStorage.delegate = context.coordinator
+        textView.delegate = context.coordinator
+        
         context.coordinator.textView = textView
         context.coordinator.layoutManager = highlightingLayoutManager
 
         return scrollView
     }
 
-    // ... Coordinator and updateNSView are unchanged ...
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = nsView.documentView as? NSTextView,
@@ -86,7 +81,8 @@ struct AIAnalysisTextView: NSViewRepresentable {
         Coordinator(parent: self, controller: analysisController)
     }
 
-    class Coordinator: NSObject, NSTextStorageDelegate {
+    // FIX: Coordinator now also conforms to NSTextViewDelegate to hear about selection changes.
+    class Coordinator: NSObject, NSTextViewDelegate, NSTextStorageDelegate {
         var parent: AIAnalysisTextView
         var controller: AnalysisController
         weak var textView: NSTextView?
@@ -112,6 +108,14 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 .store(in: &cancellables)
         }
         
+        // FIX: This delegate method is called whenever the cursor moves.
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            let cursorPosition = textView.selectedRange().location
+            // Report the new position to the controller so it can update the dials.
+            controller.updateMetricsForCursor(at: cursorPosition)
+        }
+
         func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
             
             guard !isUpdatingFromModel else { return }

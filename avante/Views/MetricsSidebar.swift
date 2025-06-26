@@ -40,7 +40,7 @@ struct MetricsSidebar: View {
                 .offset(y: -5)
                 .opacity(isActive ? 1 : 0)
             RadialDial(
-                metric: analysisController.latestMetrics,
+                metric: analysisController.metricsForDisplay,
                 type: type
             )
             .frame(width: 100, height: 100)

@@ -31,7 +31,7 @@ class AnalysisController: ObservableObject {
     }
     
     @Published private(set) var activeHighlight: MetricType? = nil
-    @Published private(set) var latestMetrics: AnalysisMetricsGroup?
+    @Published private(set) var metricsForDisplay: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
     let focusEditorSubject = PassthroughSubject<Void, Never>()
@@ -42,6 +42,7 @@ class AnalysisController: ObservableObject {
     private let jobProcessor = AnalysisJobProcessor()
     private var currentAnalysisSessionID: UUID?
     private var sessionCreationTask: Task<Void, Error>?
+    private var latestGeneratedMetrics: AnalysisMetricsGroup?
 
     func toggleHighlight(for metric: MetricType) {
         if activeHighlight == metric {
@@ -49,7 +50,6 @@ class AnalysisController: ObservableObject {
         } else {
             activeHighlight = metric
         }
-        print("Toggled highlight. Active: \(activeHighlight?.rawValue ?? "none")")
     }
 
     func setWorkspace(_ workspace: WorkspaceViewModel) {
@@ -63,7 +63,7 @@ class AnalysisController: ObservableObject {
         guard let doc = document else {
             self.activeDocument = nil
             self.documentText = ""
-            self.latestMetrics = nil
+            self.metricsForDisplay = nil
             self.status = "Select a file to begin."
             return
         }
@@ -74,6 +74,8 @@ class AnalysisController: ObservableObject {
         
         self.activeDocument = doc
         self.documentText = doc.state.fullText
+        self.metricsForDisplay = doc.state.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
+        self.latestGeneratedMetrics = self.metricsForDisplay
         self.status = "Document loaded."
         
         createNewAnalysisSession()
@@ -106,7 +108,8 @@ class AnalysisController: ObservableObject {
             await jobProcessor.queue(edit: edit) { result, processedEdits in
                 switch result {
                 case .success(let analysisResult):
-                    self.latestMetrics = analysisResult.metrics
+                    self.latestGeneratedMetrics = analysisResult.metrics
+                    self.metricsForDisplay = analysisResult.metrics
                     self.status = "Analysis complete."
 
                     guard let firstEdit = processedEdits.first, let lastEdit = processedEdits.last else { return }
@@ -125,8 +128,6 @@ class AnalysisController: ObservableObject {
                     self.status = "Analysis failed."
                     if String(describing: error).contains("Context length") {
                         print("🚨 Context overflow detected! Resetting session.")
-                        // The actor has already re-queued the failed edits.
-                        // We just need to create a new session.
                         self.resetLiveSession()
                     }
                 }
@@ -171,6 +172,21 @@ class AnalysisController: ObservableObject {
         return cleanedSession
     }
     
+    func updateMetricsForCursor(at position: Int) {
+        guard let allEdits = activeDocument?.state.analysisSessions.flatMap({ $0.analyzedEdits }), !allEdits.isEmpty else {
+            metricsForDisplay = nil
+            return
+        }
+
+        if let currentEdit = allEdits.first(where: { NSLocationInRange(position, NSRange(location: $0.range.lowerBound, length: $0.range.upperBound - $0.range.lowerBound)) }) {
+            metricsForDisplay = currentEdit.analysisResult
+        } else if let precedingEdit = allEdits.filter({ $0.range.upperBound <= position }).last {
+            metricsForDisplay = precedingEdit.analysisResult
+        } else {
+            metricsForDisplay = latestGeneratedMetrics
+        }
+    }
+
     private func createNewAnalysisSession(at location: Int? = nil) {
         print("SESSION BREAK: Creating new analysis session in data model.")
         
