@@ -16,6 +16,7 @@ import Combine
 struct ContentView: View {
     @ObservedObject var workspace: WorkspaceViewModel
     @StateObject private var analysisController = AnalysisController()
+    @AppStorage("activeHighlight") private var activeHighlightRaw: String = ""
     
     init(workspace: WorkspaceViewModel) {
         self.workspace = workspace
@@ -69,6 +70,23 @@ struct ContentView: View {
                             print("Save command received. Saving document.")
                             analysisController.saveDocument()
                         }
+                        .onReceive(NotificationCenter.default.publisher(for: .toggleHighlight)) { notification in
+                            if let metricType = notification.object as? MetricType {
+                                print("Toggle highlight command received for \(metricType.rawValue)")
+                                analysisController.toggleHighlight(for: metricType)
+                            }
+                        }
+                        .onReceive(NotificationCenter.default.publisher(for: .clearHighlights)) { _ in
+                            print("Clear highlights command received")
+                            analysisController.activeHighlight = nil
+                        }
+                        .onReceive(NotificationCenter.default.publisher(for: .renameAction)) { notification in
+                            if let selectedItem = notification.object as? FileItem {
+                                print("Rename command received for \(selectedItem.name)")
+                                // Trigger rename by posting a notification that the file explorer will handle
+                                NotificationCenter.default.post(name: .triggerRename, object: selectedItem)
+                            }
+                        }
                     } else {
                         VStack {
                             Image(systemName: "doc.text.magnifyingglass")
@@ -90,7 +108,7 @@ struct ContentView: View {
                         .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
                 }
                 // FIX: Apply a single, consistent background to the entire split view.
-                .background(Color(nsColor: .textBackgroundColor))
+                // .background(Color(nsColor: .textBackgroundColor))
                 .ignoresSafeArea()
             } else {
                 WelcomeView(onOpen: workspace.openFileOrFolder)
@@ -106,6 +124,9 @@ struct ContentView: View {
             }
             let documentToLoad = workspace.getDocument(for: item)
             analysisController.loadDocument(document: documentToLoad)
+        }
+        .onChange(of: activeHighlightRaw) { newValue in
+            analysisController.activeHighlight = MetricType(rawValue: newValue)
         }
     }
 }

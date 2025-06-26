@@ -49,7 +49,11 @@ struct MetricsSidebar: View {
         .padding(.horizontal, 18)
         .contentShape(Rectangle())
         .onTapGesture {
-            analysisController.toggleHighlight(for: type)
+            if analysisController.activeHighlight == type {
+                analysisController.activeHighlight = nil
+            } else {
+                analysisController.activeHighlight = type
+            }
         }
     }
 }
@@ -70,13 +74,6 @@ private struct StatusView: View {
                 .foregroundStyle(.secondary)
         }
     }
-}
-
-
-enum MetricType: String, Codable, Equatable {
-    case novelty
-    case clarity
-    case flow
 }
 
 private struct RadialDial: View {

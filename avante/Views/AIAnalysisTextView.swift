@@ -1,5 +1,3 @@
-
-
 import SwiftUI
 import AppKit
 import Combine
@@ -22,7 +20,7 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width, .height]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.font = .systemFont(ofSize: 16, weight: .regular)
+        textView.font = NSFont(name: "SF Pro Text", size: 16)
         textView.textColor = .textColor
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.isEditable = true

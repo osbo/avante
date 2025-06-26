@@ -123,7 +123,29 @@ struct NativeFileExplorer: NSViewRepresentable {
         fileprivate var outlineView: CustomOutlineView?
         private var itemBeingEdited: FileItem?
 
-        init(workspace: WorkspaceViewModel) { self.workspace = workspace }
+        init(workspace: WorkspaceViewModel) { 
+            self.workspace = workspace
+            super.init()
+            
+            // Listen for rename triggers from menu bar
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleRenameTrigger),
+                name: .triggerRename,
+                object: nil
+            )
+        }
+        
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+        
+        @objc private func handleRenameTrigger(_ notification: Notification) {
+            guard let itemToRename = notification.object as? FileItem else { return }
+            let menuItem = NSMenuItem(title: "Rename", action: nil, keyEquivalent: "")
+            menuItem.representedObject = itemToRename
+            renameAction(menuItem)
+        }
         
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             guard let fileItem = item as? FileItem else { return workspace.rootItem?.children?.count ?? 0 }

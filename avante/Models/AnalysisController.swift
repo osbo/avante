@@ -30,7 +30,11 @@ class AnalysisController: ObservableObject {
         }
     }
     
-    @Published private(set) var activeHighlight: MetricType? = nil
+    @AppStorage("activeHighlight") private var activeHighlightRaw: String = ""
+    var activeHighlight: MetricType? {
+        get { MetricType(rawValue: activeHighlightRaw) }
+        set { activeHighlightRaw = newValue?.rawValue ?? "" }
+    }
     @Published private(set) var metricsForDisplay: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
 
