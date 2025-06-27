@@ -9,6 +9,7 @@ import Foundation
 import SwiftUI
 import FoundationModels
 import Combine
+import NaturalLanguage
 
 struct Edit {
     let textAdded: String
@@ -184,7 +185,6 @@ class AnalysisController: ObservableObject {
         }
     }
     
-    // MODIFIED: This function is now simpler and uses the default handler.
     func queueForAnalysis(edit: Edit) {
         if !edit.isLinear {
             createNewAnalysisSession(at: edit.range.location)
@@ -215,17 +215,25 @@ class AnalysisController: ObservableObject {
         // 2. Prepare a queue of edits, one for each word in the document
         let fullText = doc.state.fullText
         var edits: [Edit] = []
-        let range = NSRange(location: 0, length: fullText.utf16.count)
-        (fullText as NSString).enumerateSubstrings(in: range, options: .byWords) { (word, wordRange, _, _) in
-            if let word = word, !word.trimmingCharacters(in: .whitespaces).isEmpty {
+        
+        let tokenizer = NLTokenizer(unit: .word)
+        tokenizer.string = fullText
+        
+        tokenizer.enumerateTokens(in: fullText.startIndex..<fullText.endIndex) { tokenRange, _ in
+            let nsRange = NSRange(tokenRange, in: fullText)
+            let word = String(fullText[tokenRange])
+            
+            // We only want to create analysis jobs for actual words.
+            if !word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let edit = Edit(
                     textAdded: word,
-                    range: wordRange,
+                    range: nsRange,
                     isLinear: true,
                     fullDocumentContext: fullText
                 )
                 edits.append(edit)
             }
+            return true
         }
         
         guard !edits.isEmpty else {
@@ -238,7 +246,6 @@ class AnalysisController: ObservableObject {
         self.reanalysisProgress = 0.0
         self.status = "Re-analyzing..."
 
-        // 3. Start a background task to feed the queue one by one
         reanalysisTask = Task {
             await feedReanalysisQueue()
         }

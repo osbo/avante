@@ -8,22 +8,27 @@
 import SwiftUI
 import AppKit
 import Combine
+import NaturalLanguage
 
 fileprivate extension String {
     func sentenceRange(for location: Int) -> NSRange {
-        var sentenceRange = NSRange(location: location, length: 0)
-        guard location <= self.count else { return sentenceRange }
-        
-        let targetIndex = self.index(self.startIndex, offsetBy: location, limitedBy: self.endIndex) ?? self.endIndex
-
-        self.enumerateSubstrings(in: self.startIndex..<self.endIndex, options: [.bySentences, .localized]) { (substring, substringRange, enclosingRange, stop) in
-            // Check if the cursor is within the sentence, or at the very end of it.
-            if substringRange.contains(targetIndex) || (substringRange.upperBound == targetIndex && !substringRange.isEmpty) {
-                sentenceRange = NSRange(substringRange, in: self)
-                stop = true
-            }
+        guard let targetIndex = Range(NSRange(location: location, length: 0), in: self)?.lowerBound else {
+            return NSRange(location: location, length: 0)
         }
-        return sentenceRange
+
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = self
+        var resultingRange = NSRange(location: location, length: 0)
+
+        tokenizer.enumerateTokens(in: self.startIndex..<self.endIndex) { tokenRange, _ in
+            if tokenRange.contains(targetIndex) || (targetIndex == tokenRange.upperBound && !tokenRange.isEmpty) {
+                resultingRange = NSRange(tokenRange, in: self)
+                return false
+            }
+            return true
+        }
+        
+        return resultingRange
     }
 }
 
@@ -143,7 +148,15 @@ struct AIAnalysisTextView: NSViewRepresentable {
         weak var layoutManager: HighlightingLayoutManager?
         
         private var wordBuffer: String = ""
-        private let wordSeparators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        
+        private let wordSeparators: CharacterSet = {
+            var separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+            // Exclude characters that are often part of a word.
+            separators.remove(charactersIn: "'’") // Apostrophes
+            separators.remove(charactersIn: "-")   // Hyphen
+            return separators
+        }()
+        
         var isUpdatingFromModel = false
         
         private var cancellables = Set<AnyCancellable>()
