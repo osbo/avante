@@ -92,11 +92,19 @@ class AnalysisController: ObservableObject {
             self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
     
         case .failure(let error):
+            // MODIFIED: Added specific handling for the guardrail violation error.
             if self.reanalysisProgress == nil {
                  self.status = "Analysis failed."
             }
-            // This is YOUR existing, robust context overflow logic. It is fully preserved.
-            if String(describing: error).contains("Context length") {
+
+            // Check for the specific error type to provide better user feedback.
+            if let generationError = error as? FoundationModels.LanguageModelSession.GenerationError,
+               case .guardrailViolation = generationError {
+                self.status = "Skipped sensitive content."
+                // The job processor has already prevented this from being re-queued.
+                // The analysis process will now continue with the next word.
+            }
+            else if String(describing: error).contains("Context length") {
                 print("🚨 Context overflow detected! Resetting session.")
                 self.resetLiveSession()
             }
@@ -136,8 +144,6 @@ class AnalysisController: ObservableObject {
     }
 
     func loadDocument(document: AvanteDocument?) {
-        activeHighlight = nil
-        // ADDED: Cancel any ongoing re-analysis when loading a new doc
         reanalysisTask?.cancel()
         reanalysisProgress = nil
         

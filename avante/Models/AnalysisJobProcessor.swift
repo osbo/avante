@@ -87,10 +87,16 @@ actor AnalysisJobProcessor {
             } catch {
                 print("❌ Actor processing failed: \(error)")
                 
-                // FIX: When an error occurs, put the failed edits back at the front of the queue
-                // to be re-processed by the next available session.
-                self.editQueue.insert(contentsOf: editsToProcess, at: 0)
-                print("📦 Edits re-queued for next session. Queue size: \(self.editQueue.count)")
+                if let generationError = error as? FoundationModels.LanguageModelSession.GenerationError,
+                   case .guardrailViolation = generationError {
+                    
+                    // This is a safety violation. Log it and do NOT re-queue the edit.
+                    print("🚫 Bypassing re-queue for guardrail violation on chunk: \"\(chunkToAnalyze)\"")
+                    
+                } else {
+                    self.editQueue.insert(contentsOf: editsToProcess, at: 0)
+                    print("📦 Edits re-queued for next session. Queue size: \(self.editQueue.count)")
+                }
                 
                 await onResult(.failure(error), editsToProcess)
             }
