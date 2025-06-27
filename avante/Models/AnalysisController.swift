@@ -348,32 +348,54 @@ class AnalysisController: ObservableObject {
         }
     }
     
-    func handleDeletion(at location: Int) {
-        guard activeDocument != nil else { return }
-        
-        var hasInvalidatedData = false
-        
-        // Iterate through all analysis sessions and remove any analyzed edits
-        // that are now invalid because they came at or after the deletion point.
-        for i in 0..<(activeDocument?.state.analysisSessions.count ?? 0) {
-            let originalCount = activeDocument!.state.analysisSessions[i].analyzedEdits.count
-            activeDocument?.state.analysisSessions[i].analyzedEdits.removeAll { edit in
-                // If an edit starts at or after the deletion location, its range is now wrong.
-                return edit.range.lowerBound >= location
+    func adjustAnalysisRanges(for changeInLength: Int, at location: Int) {
+        guard let doc = activeDocument, changeInLength != 0 else { return }
+
+        let delta = changeInLength
+        var hasMadeChanges = false
+
+        // Determine the range of text that was replaced.
+        // For a pure insertion, replacedLength is 0.
+        // For a deletion of N chars, replacedLength is N.
+        let replacedLength = (delta > 0) ? 0 : abs(delta)
+        let affectedRange = NSRange(location: location, length: replacedLength)
+
+        // Iterate through all sessions to update their edits.
+        for sessionIndex in 0..<doc.state.analysisSessions.count {
+            var newEdits: [AnalyzedEdit] = []
+            let originalEdits = doc.state.analysisSessions[sessionIndex].analyzedEdits
+
+            for var edit in originalEdits {
+                let editRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
+                var shouldDiscard = false
+
+                if NSMaxRange(editRange) <= location {
+                    // Case 1: The edit is entirely BEFORE the change. Keep it as is.
+                } else if editRange.location >= NSMaxRange(affectedRange) {
+                    // Case 2: The edit is entirely AFTER the changed range. Shift it.
+                    edit.range = CodableRange(
+                        lowerBound: edit.range.lowerBound + delta,
+                        upperBound: edit.range.upperBound + delta
+                    )
+                    hasMadeChanges = true
+                } else {
+                    // Case 3: The edit overlaps with the changed range. It is now invalid and must be discarded.
+                    shouldDiscard = true
+                    hasMadeChanges = true
+                }
+
+                if !shouldDiscard {
+                    newEdits.append(edit)
+                }
             }
-            if activeDocument!.state.analysisSessions[i].analyzedEdits.count != originalCount {
-                hasInvalidatedData = true
-            }
-        }
-        
-        // If we removed any data, the UI needs to be redrawn to remove highlights.
-        if hasInvalidatedData {
-            objectWillChange.send()
+            // Replace the old list of edits with the new, corrected one.
+            doc.state.analysisSessions[sessionIndex].analyzedEdits = newEdits
         }
 
-        // A deletion is a non-linear edit. We must create a new analysis
-        // session to ensure correct context for any new text that is typed.
-        createNewAnalysisSession(at: location)
+        if hasMadeChanges {
+            workspace?.markDocumentAsDirty(url: doc.url)
+            objectWillChange.send()
+        }
     }
 
     private func createNewAnalysisSession(at location: Int? = nil) {

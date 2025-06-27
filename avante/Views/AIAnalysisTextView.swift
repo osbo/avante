@@ -241,22 +241,19 @@ struct AIAnalysisTextView: NSViewRepresentable {
             guard !isUpdatingFromModel else { return }
             guard editedMask.contains(.editedCharacters) else { return }
             
-            // Get the definitive new text from the text storage.
             let newText = textStorage.string
             
-            // Schedule all model updates and dependent logic to run together.
-            // This prevents race conditions between the model update and the logic that reads it.
             DispatchQueue.main.async {
-                // 1. First, update the central data model.
                 self.parent.text = newText
                 
-                // 2. Then, perform actions based on the new state.
-                if delta < 0 {
-                    // Deletion path: clear the buffer and notify the controller.
-                    self.wordBuffer = ""
-                    self.controller.handleDeletion(at: editedRange.location)
-                } else {
-                    // Addition path: process the newly added text.
+                // If the length of the text changed (an insertion or deletion occurred)...
+                if delta != 0 {
+                    // Call the new, unified function to adjust all stored analysis ranges.
+                    self.controller.adjustAnalysisRanges(for: delta, at: editedRange.location)
+                }
+
+                // If text was added, we still process the new characters for live analysis.
+                if delta > 0 {
                     let addedText = (newText as NSString).substring(with: editedRange)
                     for (offset, character) in addedText.enumerated() {
                         let characterLocation = editedRange.location + offset
