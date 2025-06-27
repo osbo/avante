@@ -68,6 +68,12 @@ struct ContentView: View {
                             print("Save command received. Saving document.")
                             analysisController.saveDocument()
                         }
+                        .onReceive(NotificationCenter.default.publisher(for: .reanalyzeAction)) { notification in
+                            if let item = notification.object as? FileItem, item.id == fileItem.id {
+                                print("Re-analyze command received for \(item.name)")
+                                analysisController.reanalyzeActiveDocument()
+                            }
+                        }
                         .onReceive(NotificationCenter.default.publisher(for: .toggleHighlight)) { notification in
                             if let metricType = notification.object as? MetricType {
                                 print("Toggle highlight command received for \(metricType.rawValue)")

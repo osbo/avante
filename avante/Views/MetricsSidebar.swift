@@ -22,8 +22,11 @@ struct MetricsSidebar: View {
             
             Spacer()
 
-            StatusView(status: analysisController.status)
-                .padding(.bottom, 20)
+            StatusView(
+                status: analysisController.status,
+                progress: analysisController.reanalysisProgress
+            )
+            .padding(.bottom, 20)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,19 +63,35 @@ struct MetricsSidebar: View {
 
 private struct StatusView: View {
     let status: String
+    let progress: Double?
     
     var body: some View {
-        let showProgress = status.contains("Priming") || status == "Analyzing..." || status == "Word queued..."
-        
-        HStack(spacing: 8) {
-            if showProgress {
-                ProgressView()
-                    .controlSize(.small)
+        VStack {
+            if let progressValue = progress {
+                ProgressView(value: progressValue) {
+                    Text(status)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                } currentValueLabel: {
+                    Text("\(Int(progressValue * 100))%")
+                        .font(.caption.monospacedDigit())
+                }
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 120)
+            } else {
+                let showProgressSpinner = status.contains("Priming") || status == "Analyzing..." || status == "Word queued..."
+                HStack(spacing: 8) {
+                    if showProgressSpinner {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(status)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                }
             }
-            Text(status)
-                .font(.headline)
-                .foregroundStyle(.secondary)
         }
+        .frame(height: 20) // Give it a consistent height
     }
 }
 

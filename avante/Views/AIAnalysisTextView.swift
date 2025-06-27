@@ -73,8 +73,10 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textView.autoresizingMask = [.width, .height]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.font = NSFont(name: "SF Pro Text", size: 16)
-        // This sets the default color and ensures it adapts to the theme.
+        textView.font = NSFont(name: "SF Pro Text", size: 17)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 8.5
+        textView.defaultParagraphStyle = paragraphStyle
         textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.isEditable = true

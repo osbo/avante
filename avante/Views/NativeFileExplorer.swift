@@ -231,28 +231,65 @@ struct NativeFileExplorer: NSViewRepresentable {
         @objc func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
             guard let outlineView = self.outlineView else { return }
-            let clickedItem = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? FileItem : nil
+            let clickedRow = outlineView.clickedRow != -1 ? outlineView.clickedRow : outlineView.selectedRow
+            let clickedItem = clickedRow >= 0 ? outlineView.item(atRow: clickedRow) as? FileItem : nil
             var parentForNewItem: FileItem?
-            if let clickedItem = clickedItem { parentForNewItem = clickedItem.isFolder ? clickedItem : clickedItem.parent }
-            else { parentForNewItem = workspace.rootItem }
+            
+            if let clickedItem = clickedItem {
+                parentForNewItem = clickedItem.isFolder ? clickedItem : clickedItem.parent
+            } else {
+                parentForNewItem = workspace.rootItem
+            }
 
-            let newFile = NSMenuItem(title: "New File", action: #selector(newFileAction), keyEquivalent: "")
+            // --- Creation Group ---
+            let newFile = NSMenuItem(title: "New File", action: #selector(newFileAction), keyEquivalent: "n")
             newFile.representedObject = parentForNewItem; newFile.target = self; menu.addItem(newFile)
             
-            let newFolder = NSMenuItem(title: "New Folder", action: #selector(newFolderAction), keyEquivalent: "")
+            // Note: For Shift+Cmd+N, we use an uppercase "N" as the key equivalent.
+            let newFolder = NSMenuItem(title: "New Folder", action: #selector(newFolderAction), keyEquivalent: "N")
             newFolder.representedObject = parentForNewItem; newFolder.target = self; menu.addItem(newFolder)
 
             if let clickedItem = clickedItem {
                 menu.addItem(.separator())
-                let rename = NSMenuItem(title: "Rename", action: #selector(renameAction), keyEquivalent: "")
+                
+                // --- File Operations Group ---
+                if !clickedItem.isFolder {
+                    let save = NSMenuItem(title: "Save", action: #selector(saveAction), keyEquivalent: "s")
+                    save.representedObject = clickedItem; save.target = self
+                    save.isEnabled = clickedItem.isDirty
+                    menu.addItem(save)
+                }
+
+                let rename = NSMenuItem(title: "Rename", action: #selector(renameAction), keyEquivalent: "R")
                 rename.representedObject = clickedItem; rename.target = self; menu.addItem(rename)
+                
+                menu.addItem(.separator())
+                
+                if !clickedItem.isFolder {
+                    let reanalyze = NSMenuItem(title: "Re-analyze", action: #selector(reanalyzeAction), keyEquivalent: "r")
+                    // Explicitly set the modifier mask for the Option key.
+                    reanalyze.keyEquivalentModifierMask = [.command, .option]
+                    reanalyze.representedObject = clickedItem; reanalyze.target = self; menu.addItem(reanalyze)
+                }
+                
+                menu.addItem(.separator())
+                
+                // Note: Using NSDeleteCharacter correctly maps to the backspace/delete key.
                 let delete = NSMenuItem(title: "Delete", action: #selector(deleteAction), keyEquivalent: "")
                 delete.representedObject = clickedItem; delete.target = self; menu.addItem(delete)
             }
         }
         
+        @objc func saveAction(_ sender: Any?) {
+                     NotificationCenter.default.post(name: .saveAction, object: nil)
+                }
         @objc func newFileAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFile(in: p) } }
         @objc func newFolderAction(_ sender: Any?) { if let p = (sender as? NSMenuItem)?.representedObject as? FileItem { workspace.createNewFolder(in: p) } }
+        @objc func reanalyzeAction(_ sender: Any?) {
+            if let item = (sender as? NSMenuItem)?.representedObject as? FileItem {
+                NotificationCenter.default.post(name: .reanalyzeAction, object: item)
+            }
+        }
         @objc func renameAction(_ sender: Any?) {
             guard let item = (sender as? NSMenuItem)?.representedObject as? FileItem,
                   let outlineView = self.outlineView else { return }

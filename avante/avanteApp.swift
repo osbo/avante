@@ -54,12 +54,32 @@ struct avanteApp: App {
                 .keyboardShortcut("s", modifiers: .command)
             }
             
-            // Add rename functionality to File menu
+            // Re-ordered this group for consistency
             CommandGroup(after: .saveItem) {
                 Button("Rename") {
                     NotificationCenter.default.post(name: .renameAction, object: workspace.selectedItem)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+                
+                Divider()
+                
+                Button("Re-analyze File") {
+                    if let selectedFile = workspace.selectedFileForEditor {
+                         NotificationCenter.default.post(name: .reanalyzeAction, object: selectedFile)
+                    }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(workspace.selectedFileForEditor == nil)
+            }
+            
+            CommandGroup(after: .saveItem) {
+                Divider()
+                Button("Delete") {
+                    if let itemToDelete = workspace.selectedItem {
+                        workspace.deleteItem(itemToDelete)
+                    }
+                }
+                .disabled(workspace.selectedItem == nil)
             }
             
             // View Menu with dial functionality
@@ -98,6 +118,7 @@ extension Notification.Name {
     static let toggleHighlight = Notification.Name("com.carlosborne.avante.toggleHighlight")
     static let clearHighlights = Notification.Name("com.carlosborne.avante.clearHighlights")
     static let triggerRename = Notification.Name("com.carlosborne.avante.triggerRename")
+    static let reanalyzeAction = Notification.Name("com.carlosborne.avante.reanalyzeAction")
 }
 
 struct HighlightMenuItems: View {

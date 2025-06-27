@@ -30,16 +30,40 @@ class HighlightingLayoutManager: NSLayoutManager {
             let currentRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
             let nextRange = NSRange(location: nextEdit.range.lowerBound, length: nextEdit.range.upperBound - nextEdit.range.lowerBound)
 
-            let startColor = colorFor(value: scoreFor(metric: activeHighlight, in: edit.analysisResult))
-            let endColor = colorFor(value: scoreFor(metric: activeHighlight, in: nextEdit.analysisResult))
+            // FIX: Check if the end of the current edit and the start of the next edit are on the same line.
+            // Get the glyph range for the last character of the current edit.
+            let lastCharRange = NSRange(location: NSMaxRange(currentRange) - 1, length: 1)
+            let lastGlyphRange = self.glyphRange(forCharacterRange: lastCharRange, actualCharacterRange: nil)
             
-            if currentRange.upperBound == nextRange.location {
-                let firstCharRange = NSRange(location: nextRange.location, length: 1)
-                drawGradient(from: startColor, to: endColor, in: firstCharRange, at: origin)
-            }
-            else if currentRange.upperBound < nextRange.location {
-                let spaceRange = NSRange(location: currentRange.upperBound, length: nextRange.location - currentRange.upperBound)
-                drawGradient(from: startColor, to: endColor, in: spaceRange, at: origin)
+            // Get the glyph range for the first character of the next edit.
+            let firstCharRange = NSRange(location: nextRange.location, length: 1)
+            let firstGlyphRange = self.glyphRange(forCharacterRange: firstCharRange, actualCharacterRange: nil)
+
+            // Ensure the glyph ranges are valid before proceeding.
+            guard lastGlyphRange.location != NSNotFound, firstGlyphRange.location != NSNotFound else { continue }
+
+            // Get the line fragment rectangles for each glyph.
+            let lastGlyphLineRect = self.lineFragmentRect(forGlyphAt: lastGlyphRange.location, effectiveRange: nil)
+            let firstGlyphLineRect = self.lineFragmentRect(forGlyphAt: firstGlyphRange.location, effectiveRange: nil)
+
+            // Only draw the gradient if the two edits are on the same line.
+            // We compare the Y-origin of their respective line fragment rectangles.
+            if abs(lastGlyphLineRect.origin.y - firstGlyphLineRect.origin.y) < 1.0 {
+                
+                let startColor = colorFor(value: scoreFor(metric: activeHighlight, in: edit.analysisResult))
+                let endColor = colorFor(value: scoreFor(metric: activeHighlight, in: nextEdit.analysisResult))
+                
+                // If chunks are contiguous (no space between them).
+                if currentRange.upperBound == nextRange.location {
+                    // Draw a small gradient over the first character of the next chunk to blend them.
+                    drawGradient(from: startColor, to: endColor, in: firstCharRange, at: origin)
+                }
+                // If chunks are separated by whitespace.
+                else if currentRange.upperBound < nextRange.location {
+                    // Draw a gradient over the whitespace between the chunks.
+                    let spaceRange = NSRange(location: currentRange.upperBound, length: nextRange.location - currentRange.upperBound)
+                    drawGradient(from: startColor, to: endColor, in: spaceRange, at: origin)
+                }
             }
         }
     }

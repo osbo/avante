@@ -22,7 +22,11 @@ class WorkspaceViewModel: ObservableObject {
             }
         }
     }
-    @Published var selectedFileForEditor: FileItem?
+    @Published var selectedFileForEditor: FileItem? {
+        didSet {
+            saveLastOpenedFile(fileItem: selectedFileForEditor)
+        }
+    }
     
     private var documentCache: [URL: AvanteDocument] = [:]
     
@@ -31,6 +35,7 @@ class WorkspaceViewModel: ObservableObject {
     
     private enum UserDefaultsKeys {
         static let workspaceBookmark = "workspaceBookmark"
+        static let lastOpenedFileBookmark = "lastOpenedFileBookmark"
     }
     
     private var expandedItemURLs = Set<URL>()
@@ -236,6 +241,8 @@ class WorkspaceViewModel: ObservableObject {
         self.rootItem?.isExpanded = true
         refreshFileTree()
         fileSystemMonitor.startMonitoring(path: url.path)
+        
+        restoreLastOpenedFile()
     }
     
     private func buildFileTree(from url: URL, parent: FileItem?) -> [FileItem] {
@@ -343,6 +350,58 @@ class WorkspaceViewModel: ObservableObject {
             UserDefaults.standard.set(bookmarkData, forKey: UserDefaultsKeys.workspaceBookmark)
         } catch {
             print("Failed to save workspace bookmark: \(error)")
+        }
+    }
+    
+    private func saveLastOpenedFile(fileItem: FileItem?) {
+        // If the item is nil or it's a folder, remove the stored bookmark.
+        guard let item = fileItem, !item.isFolder else {
+            UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastOpenedFileBookmark)
+            return
+        }
+        
+        do {
+            let bookmarkData = try item.url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            UserDefaults.standard.set(bookmarkData, forKey: UserDefaultsKeys.lastOpenedFileBookmark)
+            print("Saved last opened file: \(item.name)")
+        } catch {
+            print("Failed to save last opened file bookmark for \(item.name). Error: \(error)")
+        }
+    }
+    
+    private func restoreLastOpenedFile() {
+        guard let bookmarkData = UserDefaults.standard.data(forKey: UserDefaultsKeys.lastOpenedFileBookmark) else { return }
+        
+        var isStale = false
+        do {
+            let url = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
+            
+            if isStale {
+                print("Last opened file bookmark is stale, will be re-saved upon next selection.")
+            }
+            
+            // We must start accessing the resource before we can use the URL.
+            guard url.startAccessingSecurityScopedResource() else {
+                print("Could not gain security access to last opened file URL.")
+                return
+            }
+            
+            // Ensure the file is actually inside the current workspace before selecting it.
+            guard let rootURL = self.rootItem?.url, url.path.hasPrefix(rootURL.path) else {
+                print("Last opened file is not within the current workspace.")
+                url.stopAccessingSecurityScopedResource()
+                return
+            }
+            
+            // Dispatch to the main queue to ensure the file tree UI has been updated.
+            DispatchQueue.main.async {
+                print("Restoring last opened file: \(url.lastPathComponent)")
+                self.selectFile(at: url)
+                // It's good practice to stop accessing when done, but for a file
+                // that will be actively used, we can leave it. The OS will handle it.
+            }
+        } catch {
+            print("Error restoring last opened file from bookmark: \(error)")
         }
     }
     

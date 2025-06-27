@@ -14,6 +14,10 @@ actor AnalysisJobProcessor {
     private var activeSession: LanguageModelSession?
     
     private var lastOnResult: (@MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void)?
+    
+    func isIdle() -> Bool {
+        return !isProcessing && editQueue.isEmpty
+    }
 
     func set(session: LanguageModelSession) {
         self.activeSession = session

@@ -38,6 +38,9 @@ class AnalysisController: ObservableObject {
     @Published private(set) var metricsForDisplay: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
     
+    // ADDED: State for re-analysis progress
+    @Published private(set) var reanalysisProgress: Double? = nil
+    
     // NEW: State for Focus Mode
     @Published var isFocusModeEnabled: Bool = false
     @Published var isMouseStationary = true
@@ -53,9 +56,53 @@ class AnalysisController: ObservableObject {
     private var sessionCreationTask: Task<Void, Error>?
     private var latestGeneratedMetrics: AnalysisMetricsGroup?
     
+    // ADDED: Queue and task for the re-analysis feeder
+    private var reanalysisEditQueue: [Edit] = []
+    private var reanalysisTotalEdits: Int = 0
+    private var reanalysisTask: Task<Void, Never>?
+    
     private var mouseStationaryTimer: AnyCancellable?
     private let mouseStationaryDelay = 0.8 // seconds
 
+    // ADDED: A default completion handler to be shared by both manual and re-analysis queuing.
+    // This ensures the context overflow logic is always applied.
+    private lazy var defaultAnalysisCompletionHandler: @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void = { [weak self] result, processedEdits in
+        guard let self = self else { return }
+
+        switch result {
+        case .success(let analysisResult):
+            self.latestGeneratedMetrics = analysisResult.metrics
+            self.metricsForDisplay = analysisResult.metrics
+            
+            // Don't overwrite re-analysis status with "Analysis complete."
+            if self.reanalysisProgress == nil {
+                self.status = "Analysis complete."
+            }
+
+            guard let firstEdit = processedEdits.first, let lastEdit = processedEdits.last else { return }
+            let combinedRange = NSRange(location: firstEdit.range.location, length: NSMaxRange(lastEdit.range) - firstEdit.range.location)
+            let combinedText = processedEdits.map(\.textAdded).joined(separator: " ")
+
+            let newAnalyzedEdit = AnalyzedEdit(
+                range: CodableRange(from: combinedRange),
+                text: combinedText,
+                analysisResult: analysisResult.metrics
+            )
+            
+            self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
+    
+        case .failure(let error):
+            if self.reanalysisProgress == nil {
+                 self.status = "Analysis failed."
+            }
+            // This is YOUR existing, robust context overflow logic. It is fully preserved.
+            if String(describing: error).contains("Context length") {
+                print("🚨 Context overflow detected! Resetting session.")
+                self.resetLiveSession()
+            }
+        }
+    }
+    
     func mouseDidMove() {
         if isMouseStationary {
             isMouseStationary = false
@@ -90,6 +137,10 @@ class AnalysisController: ObservableObject {
 
     func loadDocument(document: AvanteDocument?) {
         activeHighlight = nil
+        // ADDED: Cancel any ongoing re-analysis when loading a new doc
+        reanalysisTask?.cancel()
+        reanalysisProgress = nil
+        
         Task { await jobProcessor.clearQueue() }
         
         guard let doc = document else {
@@ -127,6 +178,7 @@ class AnalysisController: ObservableObject {
         }
     }
     
+    // MODIFIED: This function is now simpler and uses the default handler.
     func queueForAnalysis(edit: Edit) {
         if !edit.isLinear {
             createNewAnalysisSession(at: edit.range.location)
@@ -135,35 +187,103 @@ class AnalysisController: ObservableObject {
         Task {
             _ = await sessionCreationTask?.result
             
-            self.status = "Word queued..."
+            if reanalysisProgress == nil {
+                self.status = "Word queued..."
+            }
             
-            await jobProcessor.queue(edit: edit) { result, processedEdits in
-                switch result {
-                case .success(let analysisResult):
-                    self.latestGeneratedMetrics = analysisResult.metrics
-                    self.metricsForDisplay = analysisResult.metrics
-                    self.status = "Analysis complete."
+            await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
+        }
+    }
+    
+    // ADDED: Main entry point for the re-analysis feature.
+    func reanalyzeActiveDocument() {
+        guard let doc = activeDocument, reanalysisProgress == nil else { return }
+        
+        reanalysisTask?.cancel() // Cancel any previous re-analysis
+        
+        // 1. Clear existing analysis data
+        doc.state.analysisSessions.removeAll()
+        createNewAnalysisSession() // A re-analyzed doc is one big session
+        self.objectWillChange.send() // Force UI to update and clear highlights
+        
+        // 2. Prepare a queue of edits, one for each word in the document
+        let fullText = doc.state.fullText
+        var edits: [Edit] = []
+        let range = NSRange(location: 0, length: fullText.utf16.count)
+        (fullText as NSString).enumerateSubstrings(in: range, options: .byWords) { (word, wordRange, _, _) in
+            if let word = word, !word.trimmingCharacters(in: .whitespaces).isEmpty {
+                let edit = Edit(
+                    textAdded: word,
+                    range: wordRange,
+                    isLinear: true,
+                    fullDocumentContext: fullText
+                )
+                edits.append(edit)
+            }
+        }
+        
+        guard !edits.isEmpty else {
+            status = "Document is empty."
+            return
+        }
 
-                    guard let firstEdit = processedEdits.first, let lastEdit = processedEdits.last else { return }
-                    let combinedRange = NSRange(location: firstEdit.range.location, length: NSMaxRange(lastEdit.range) - firstEdit.range.location)
-                    let combinedText = processedEdits.map(\.textAdded).joined(separator: " ")
+        self.reanalysisEditQueue = edits
+        self.reanalysisTotalEdits = edits.count
+        self.reanalysisProgress = 0.0
+        self.status = "Re-analyzing..."
 
-                    let newAnalyzedEdit = AnalyzedEdit(
-                        range: CodableRange(from: combinedRange),
-                        text: combinedText,
-                        analysisResult: analysisResult.metrics
-                    )
-                    
-                    self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
+        // 3. Start a background task to feed the queue one by one
+        reanalysisTask = Task {
+            await feedReanalysisQueue()
+        }
+    }
+    
+    // ADDED: Feeder task that queues words, waiting for the processor to be idle between each one.
+    private func feedReanalysisQueue() async {
+        while !reanalysisEditQueue.isEmpty {
+            if Task.isCancelled {
+                await MainActor.run {
+                    self.reanalysisProgress = nil
+                    self.status = "Re-analysis cancelled."
+                }
+                break
+            }
             
-                case .failure(let error):
-                    self.status = "Analysis failed."
-                    if String(describing: error).contains("Context length") {
-                        print("🚨 Context overflow detected! Resetting session.")
-                        self.resetLiveSession()
-                    }
+            // This is the key: wait for the job processor to be free.
+            // If it's busy (e.g., handling a context overflow reset), this will wait.
+            await waitUntilJobProcessorIsIdle()
+            
+            guard !reanalysisEditQueue.isEmpty else { break }
+            let edit = reanalysisEditQueue.removeFirst()
+            
+            // Update progress on the main thread
+            await MainActor.run {
+                let processedCount = reanalysisTotalEdits - reanalysisEditQueue.count
+                let progress = Double(processedCount) / Double(reanalysisTotalEdits)
+                self.reanalysisProgress = progress
+                self.status = "Re-analyzing..."
+            }
+            
+            // Use the standard analysis queue with the standard handler
+            await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
+        }
+        
+        // Finished
+        if !Task.isCancelled {
+            await MainActor.run {
+                self.reanalysisProgress = nil
+                self.status = "Re-analysis complete."
+                if let doc = activeDocument {
+                    workspace?.markDocumentAsDirty(url: doc.url)
                 }
             }
+        }
+    }
+    
+    // ADDED: Helper to wait for the analysis processor to be idle.
+    private func waitUntilJobProcessorIsIdle() async {
+        while await !jobProcessor.isIdle() {
+            try? await Task.sleep(nanoseconds: 10_000_000) // wait 0.1 seconds
         }
     }
     
@@ -231,7 +351,10 @@ class AnalysisController: ObservableObject {
     
     private func resetLiveSession() {
         sessionCreationTask = Task {
-            self.status = "Priming session..."
+            // During re-analysis, the status is controlled by the feeder, so don't show "Priming..."
+            if reanalysisProgress == nil {
+                self.status = "Priming session..."
+            }
             
             await jobProcessor.resetSessionState()
             
@@ -250,7 +373,9 @@ class AnalysisController: ObservableObject {
             
             await jobProcessor.set(session: session)
             
-            self.status = "Ready."
+            if reanalysisProgress == nil {
+                self.status = "Ready."
+            }
             print("✅ Live session primed and set successfully.")
             self.focusEditorSubject.send()
         }
