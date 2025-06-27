@@ -38,11 +38,7 @@ class AnalysisController: ObservableObject {
     }
     @Published private(set) var metricsForDisplay: AnalysisMetricsGroup?
     @Published private(set) var status: String = "Select a file to begin."
-    
-    // ADDED: State for re-analysis progress
     @Published private(set) var reanalysisProgress: Double? = nil
-    
-    // NEW: State for Focus Mode
     @Published var isFocusModeEnabled: Bool = false
     @Published var isMouseStationary = true
     @Published var textViewSelectionRange = NSRange(location: 0, length: 0)
@@ -390,7 +386,6 @@ class AnalysisController: ObservableObject {
                 self.status = "Ready."
             }
             print("✅ Live session primed and set successfully.")
-            self.focusEditorSubject.send()
         }
     }
 }

@@ -179,11 +179,14 @@ struct AIAnalysisTextView: NSViewRepresentable {
         
         func updateFocus(on textView: NSTextView) {
             guard let textStorage = textView.textStorage else { return }
+            
+            let isEditorFocused = (textView.window?.firstResponder == textView)
 
             let shouldDim = controller.isFocusModeEnabled &&
                             controller.isMouseStationary &&
                             controller.textViewSelectionRange.length == 0 &&
-                            controller.activeHighlight == nil
+                            controller.activeHighlight == nil &&
+                            isEditorFocused
 
             let fullRange = NSRange(location: 0, length: textStorage.length)
             
