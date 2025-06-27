@@ -147,7 +147,7 @@ private struct RadialDial: View {
         }
         .frame(width: 100, height: 100)
         .onAppear { animatedValue = value }
-        .onChange(of: value) { newValue in
+        .onChange(of: value) { _, newValue in
             withAnimation(.easeInOut(duration: 0.4)) {
                 animatedValue = newValue
             }

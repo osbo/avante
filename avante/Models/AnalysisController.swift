@@ -266,9 +266,9 @@ class AnalysisController: ObservableObject {
             let edit = reanalysisEditQueue.removeFirst()
             
             // Update progress on the main thread
-            await MainActor.run {
-                let processedCount = reanalysisTotalEdits - reanalysisEditQueue.count
-                let progress = Double(processedCount) / Double(reanalysisTotalEdits)
+            DispatchQueue.main.async {
+                let processedCount = self.reanalysisTotalEdits - self.reanalysisEditQueue.count
+                let progress = Double(processedCount) / Double(self.reanalysisTotalEdits)
                 self.reanalysisProgress = progress
                 self.status = "Re-analyzing..."
             }
@@ -346,6 +346,34 @@ class AnalysisController: ObservableObject {
         } else {
             metricsForDisplay = latestGeneratedMetrics
         }
+    }
+    
+    func handleDeletion(at location: Int) {
+        guard activeDocument != nil else { return }
+        
+        var hasInvalidatedData = false
+        
+        // Iterate through all analysis sessions and remove any analyzed edits
+        // that are now invalid because they came at or after the deletion point.
+        for i in 0..<(activeDocument?.state.analysisSessions.count ?? 0) {
+            let originalCount = activeDocument!.state.analysisSessions[i].analyzedEdits.count
+            activeDocument?.state.analysisSessions[i].analyzedEdits.removeAll { edit in
+                // If an edit starts at or after the deletion location, its range is now wrong.
+                return edit.range.lowerBound >= location
+            }
+            if activeDocument!.state.analysisSessions[i].analyzedEdits.count != originalCount {
+                hasInvalidatedData = true
+            }
+        }
+        
+        // If we removed any data, the UI needs to be redrawn to remove highlights.
+        if hasInvalidatedData {
+            objectWillChange.send()
+        }
+
+        // A deletion is a non-linear edit. We must create a new analysis
+        // session to ensure correct context for any new text that is typed.
+        createNewAnalysisSession(at: location)
     }
 
     private func createNewAnalysisSession(at location: Int? = nil) {

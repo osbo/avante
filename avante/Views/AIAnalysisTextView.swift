@@ -190,8 +190,6 @@ struct AIAnalysisTextView: NSViewRepresentable {
 
             let fullRange = NSRange(location: 0, length: textStorage.length)
             
-            // Get the correct, theme-aware default color from the text view itself.
-            let defaultColor = NSColor.labelColor
             let dimmedColor = NSColor.tertiaryLabelColor
 
             let sentenceRange: NSRange
@@ -230,33 +228,45 @@ struct AIAnalysisTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             
-            controller.textViewSelectionRange = textView.selectedRange()
+            let selectionRange = textView.selectedRange()
             
-            let cursorPosition = textView.selectedRange().location
-            controller.updateMetricsForCursor(at: cursorPosition)
+            DispatchQueue.main.async {
+                self.controller.textViewSelectionRange = selectionRange
+                self.controller.updateMetricsForCursor(at: selectionRange.location)
+            }
         }
-
+        
         func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
             
             guard !isUpdatingFromModel else { return }
             guard editedMask.contains(.editedCharacters) else { return }
             
-            self.parent.text = textStorage.string
+            // Get the definitive new text from the text storage.
+            let newText = textStorage.string
             
-            if delta < 0 {
-                flushWordBuffer(at: editedRange.location)
-                return
-            }
-            
-            let addedText = (textStorage.string as NSString).substring(with: editedRange)
-            
-            for (offset, character) in addedText.enumerated() {
-                let characterLocation = editedRange.location + offset
+            // Schedule all model updates and dependent logic to run together.
+            // This prevents race conditions between the model update and the logic that reads it.
+            DispatchQueue.main.async {
+                // 1. First, update the central data model.
+                self.parent.text = newText
                 
-                if character.unicodeScalars.allSatisfy(wordSeparators.contains) {
-                    flushWordBuffer(at: characterLocation)
+                // 2. Then, perform actions based on the new state.
+                if delta < 0 {
+                    // Deletion path: clear the buffer and notify the controller.
+                    self.wordBuffer = ""
+                    self.controller.handleDeletion(at: editedRange.location)
                 } else {
-                    wordBuffer.append(character)
+                    // Addition path: process the newly added text.
+                    let addedText = (newText as NSString).substring(with: editedRange)
+                    for (offset, character) in addedText.enumerated() {
+                        let characterLocation = editedRange.location + offset
+                        
+                        if character.unicodeScalars.allSatisfy(self.wordSeparators.contains) {
+                            self.flushWordBuffer(at: characterLocation)
+                        } else {
+                            self.wordBuffer.append(character)
+                        }
+                    }
                 }
             }
         }
@@ -270,8 +280,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
             let wordLocation = separatorLocation - word.count
             let wordRange = NSRange(location: wordLocation, length: word.count)
             
-            guard wordLocation >= 0, let fullText = textView?.string else { return }
-            guard NSMaxRange(wordRange) <= (fullText as NSString).length else { return }
+            // MODIFIED: Use the synchronized parent binding as the source of truth for the full text.
+            let fullText = self.parent.text
+            
+            // Safety check against the now-guaranteed-to-be-current text model.
+            guard wordLocation >= 0, NSMaxRange(wordRange) <= (fullText as NSString).length else { return }
 
             let edit = Edit(
                 textAdded: word,

@@ -75,9 +75,8 @@ class HighlightingLayoutManager: NSLayoutManager {
         let color = colorFor(value: score)
         
         let glyphRangeToDraw = self.glyphRange(forCharacterRange: editRange, actualCharacterRange: nil)
-        guard let textContainer = textContainer(forGlyphAt: glyphRangeToDraw.location, effectiveRange: nil) else { return }
+        guard let _ = textContainer(forGlyphAt: glyphRangeToDraw.location, effectiveRange: nil) else { return }
 
-        // FIX: Use the robust intersection logic to ensure highlights are always tight to the text.
         self.enumerateLineFragments(forGlyphRange: glyphRangeToDraw) { (rect, usedRect, textContainer, lineGlyphRange, stop) in
             
             let lineCharRange = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)

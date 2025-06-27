@@ -16,7 +16,6 @@ struct avanteApp: App {
     @AppStorage("isFocusModeEnabled") private var isFocusModeEnabled: Bool = false
 
     var body: some Scene {
-        let currentHighlight = MetricType(rawValue: activeHighlightRaw)
         return WindowGroup {
             ContentView(workspace: workspace, isFocusModeEnabled: $isFocusModeEnabled)
                 .onOpenURL { url in
