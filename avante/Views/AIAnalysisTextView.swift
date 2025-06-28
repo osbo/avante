@@ -126,8 +126,8 @@ struct AIAnalysisTextView: NSViewRepresentable {
         }
         
         // Update analysis and highlight data
-        let allEdits = analysisController.activeDocument?.state.analysisSessions.flatMap { $0.analyzedEdits } ?? []
-        layoutManager.analysisData = allEdits
+        let allAnalyses = analysisController.activeDocument?.state.analyses ?? []
+        layoutManager.analysisData = allAnalyses
         layoutManager.activeHighlight = analysisController.activeHighlight
         
         // Invalidate display to force a redraw of highlights

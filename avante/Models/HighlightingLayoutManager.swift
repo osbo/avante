@@ -9,7 +9,7 @@ import AppKit
 import SwiftUI
 
 class HighlightingLayoutManager: NSLayoutManager {
-    var analysisData: [AnalyzedEdit] = []
+    var analysisData: [Analysis] = []
     var activeHighlight: MetricType? = nil
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
@@ -23,12 +23,12 @@ class HighlightingLayoutManager: NSLayoutManager {
         }
         
         // --- Pass 2: Draw the gradient transitions between the chunks ---
-        for (index, edit) in analysisData.enumerated() {
+        for (index, analysis) in analysisData.enumerated() {
             guard index + 1 < analysisData.count else { continue }
             
-            let nextEdit = analysisData[index + 1]
-            let currentRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
-            let nextRange = NSRange(location: nextEdit.range.lowerBound, length: nextEdit.range.upperBound - nextEdit.range.lowerBound)
+            let nextAnalysis = analysisData[index + 1]
+            let currentRange = NSRange(location: analysis.range.lowerBound, length: analysis.range.upperBound - analysis.range.lowerBound)
+            let nextRange = NSRange(location: nextAnalysis.range.lowerBound, length: nextAnalysis.range.upperBound - nextAnalysis.range.lowerBound)
 
             // FIX: Check if the end of the current edit and the start of the next edit are on the same line.
             // Get the glyph range for the last character of the current edit.
@@ -50,8 +50,8 @@ class HighlightingLayoutManager: NSLayoutManager {
             // We compare the Y-origin of their respective line fragment rectangles.
             if abs(lastGlyphLineRect.origin.y - firstGlyphLineRect.origin.y) < 1.0 {
                 
-                let startColor = colorFor(value: scoreFor(metric: activeHighlight, in: edit.analysisResult))
-                let endColor = colorFor(value: scoreFor(metric: activeHighlight, in: nextEdit.analysisResult))
+                let startColor = colorFor(value: scoreFor(metric: activeHighlight, in: analysis.metrics))
+                let endColor = colorFor(value: scoreFor(metric: activeHighlight, in: nextAnalysis.metrics))
                 
                 // If chunks are contiguous (no space between them).
                 if currentRange.upperBound == nextRange.location {
@@ -69,9 +69,9 @@ class HighlightingLayoutManager: NSLayoutManager {
     }
     
     // Draws a solid-colored background for a given analysis chunk.
-    private func drawSolidHighlight(for edit: AnalyzedEdit, metric: MetricType, at origin: CGPoint) {
-        let editRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
-        let score = scoreFor(metric: metric, in: edit.analysisResult)
+    private func drawSolidHighlight(for analysis: Analysis, metric: MetricType, at origin: CGPoint) {
+        let editRange = NSRange(location: analysis.range.lowerBound, length: analysis.range.upperBound - analysis.range.lowerBound)
+        let score = scoreFor(metric: metric, in: analysis.metrics)
         let color = colorFor(value: score)
         
         let glyphRangeToDraw = self.glyphRange(forCharacterRange: editRange, actualCharacterRange: nil)

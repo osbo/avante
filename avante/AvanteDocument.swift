@@ -8,48 +8,36 @@
 import SwiftUI
 import Combine
 
+// A simple container for the three metric scores.
+struct AnalysisMetricsGroup: Codable, Equatable, Hashable {
+    var novelty: Double
+    var clarity: Double
+    var flow: Double
+}
+
+// The new, flattened analysis object.
+struct Analysis: Codable, Equatable, Identifiable {
+    var id: UUID = UUID()
+    var timestamp: Date = Date()
+    var range: CodableRange
+    var metrics: AnalysisMetricsGroup
+}
+
+// The new top-level state for the entire document.
 struct DocumentState: Codable, Equatable {
     var documentId: UUID = UUID()
-    var schemaVersion: String = "1.0.0"
     var fullText: String
-    var analysisSessions: [AnalysisSession]
+    var analyses: [Analysis]
     var selectionRange: CodableRange?
 
     static func == (lhs: DocumentState, rhs: DocumentState) -> Bool {
-        lhs.documentId == rhs.documentId
+        lhs.documentId == rhs.documentId && lhs.fullText == rhs.fullText
     }
-}
-
-struct AnalysisSession: Codable, Equatable, Identifiable {
-    var id: UUID = UUID()
-    var startLocation: Int
-    var contextSummary: String
-    var analyzedEdits: [AnalyzedEdit]
-
-    static func == (lhs: AnalysisSession, rhs: AnalysisSession) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct AnalyzedEdit: Codable, Equatable, Identifiable {
-    var id: UUID = UUID()
-    // FIX: Add a timestamp to every analysis result.
-    var timestamp: Date = Date()
-    var range: CodableRange
-    var text: String
-    var analysisResult: AnalysisMetricsGroup
 }
 
 struct CodableRange: Codable, Equatable, Hashable {
     let lowerBound: Int
     let upperBound: Int
-}
-
-struct AnalysisMetricsGroup: Codable, Equatable, Hashable, Identifiable {
-    var id: UUID = UUID()
-    var novelty: Double
-    var clarity: Double
-    var flow: Double
 }
 
 class DocumentHistoryManager {
@@ -114,14 +102,14 @@ class AvanteDocument: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         
+        
         if let data = try? Data(contentsOf: url),
-            let decodedState = try? decoder.decode(DocumentState.self, from: data) {
+           let decodedState = try? decoder.decode(DocumentState.self, from: data) {
             self.state = decodedState
-            print("Successfully loaded document state from \(url.lastPathComponent)")
+            print("Successfully loaded document in new format: \(url.lastPathComponent)")
         } else {
             let initialText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            // REQUIRED: Ensure you are initializing the new selectionRange property here.
-            self.state = DocumentState(fullText: initialText, analysisSessions: [], selectionRange: CodableRange(from: NSRange(location: 0, length: 0)))
+            self.state = DocumentState(fullText: initialText, analyses: [], selectionRange: CodableRange(from: NSRange(location: 0, length: 0)))
             print("File is new or corrupt, creating new document state for: \(url.lastPathComponent)")
         }
         
@@ -138,7 +126,7 @@ class AvanteDocument: ObservableObject {
             let data = try encoder.encode(state)
             
             try data.write(to: url, options: .atomic)
-            print("File saved successfully to \(url.lastPathComponent)")
+            print("File saved successfully in new format to \(url.lastPathComponent)")
         } catch {
             print("Failed to save file \(url.lastPathComponent). Error: \(error)")
         }
@@ -192,35 +180,23 @@ class AvanteDocument: ObservableObject {
     public func updateFullText(to newText: String) {
         state.fullText = newText
     }
-
-    /// Clears all analysis data from the document. Used for re-analysis.
-    public func clearAnalysisSessions() {
-        state.analysisSessions.removeAll()
-    }
-
-    /// Appends a new, empty analysis session.
-    public func addNewAnalysisSession(_ session: AnalysisSession) {
-        state.analysisSessions.append(session)
-    }
     
-    /// Adds a new analyzed edit to a specific session and resolves any range conflicts.
-    public func addAnalyzedEdit(_ newEdit: AnalyzedEdit, toSessionWithID sessionID: UUID) {
-        guard let sessionIndex = state.analysisSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+    public func clearAnalyses() {
+        state.analyses.removeAll()
+    }
+
+    public func addAnalysis(_ newAnalysis: Analysis) {
+        let newRange = NSRange(location: newAnalysis.range.lowerBound, length: newAnalysis.range.upperBound - newAnalysis.range.lowerBound)
         
-        let newRange = NSRange(location: newEdit.range.lowerBound, length: newEdit.range.upperBound - newEdit.range.lowerBound)
-        
-        // Remove any old edits that conflict with the new one's range.
-        state.analysisSessions[sessionIndex].analyzedEdits.removeAll { existingEdit in
-            let existingRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-            return NSIntersectionRange(newRange, existingRange).length > 0 || NSLocationInRange(newRange.location, existingRange)
+        state.analyses.removeAll { existingAnalysis in
+            let existingRange = NSRange(location: existingAnalysis.range.lowerBound, length: existingAnalysis.range.upperBound - existingAnalysis.range.lowerBound)
+            return NSIntersectionRange(newRange, existingRange).length > 0
         }
         
-        // Add the new edit and re-sort.
-        state.analysisSessions[sessionIndex].analyzedEdits.append(newEdit)
-        state.analysisSessions[sessionIndex].analyzedEdits.sort { $0.range.lowerBound < $1.range.lowerBound }
+        state.analyses.append(newAnalysis)
+        state.analyses.sort { $0.range.lowerBound < $1.range.lowerBound }
     }
     
-    /// Adjusts all stored analysis ranges in response to a text change.
     public func adjustAnalysisRanges(for changeInLength: Int, at location: Int) {
         let delta = changeInLength
         guard delta != 0 else { return }
@@ -228,58 +204,32 @@ class AvanteDocument: ObservableObject {
         let replacedLength = (delta > 0) ? 0 : abs(delta)
         let affectedRange = NSRange(location: location, length: replacedLength)
 
-        // Iterate through all sessions to update their edits.
-        for sessionIndex in 0..<state.analysisSessions.count {
-            var newEdits: [AnalyzedEdit] = []
-            let originalEdits = state.analysisSessions[sessionIndex].analyzedEdits
+        var newAnalyses: [Analysis] = []
+        for var analysis in state.analyses {
+            let editRange = NSRange(location: analysis.range.lowerBound, length: analysis.range.upperBound - analysis.range.lowerBound)
+            var shouldDiscard = false
 
-            for var edit in originalEdits {
-                let editRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
-                var shouldDiscard = false
-
-                if NSMaxRange(editRange) <= location {
-                    // Case 1: Edit is BEFORE the change. Keep it.
-                } else if editRange.location >= NSMaxRange(affectedRange) {
-                    // Case 2: Edit is AFTER the change. Shift it.
-                    edit.range = CodableRange(
-                        lowerBound: edit.range.lowerBound + delta,
-                        upperBound: edit.range.upperBound + delta
-                    )
-                } else {
-                    // Case 3: Edit OVERLAPS with the change. Discard it.
-                    shouldDiscard = true
-                }
-
-                if !shouldDiscard {
-                    newEdits.append(edit)
-                }
+            if NSMaxRange(editRange) <= location {
+                // Case 1: Before the change. Keep it.
+            } else if editRange.location >= NSMaxRange(affectedRange) {
+                // Case 2: After the change. Shift it.
+                analysis.range = CodableRange(
+                    lowerBound: analysis.range.lowerBound + delta,
+                    upperBound: analysis.range.upperBound + delta
+                )
+            } else {
+                // Case 3: Overlaps. Discard it.
+                shouldDiscard = true
             }
-            state.analysisSessions[sessionIndex].analyzedEdits = newEdits
+
+            if !shouldDiscard {
+                newAnalyses.append(analysis)
+            }
         }
+        state.analyses = newAnalyses
     }
     
-    /// Resolves conflicts within each analysis session, keeping the most recent edits.
-    public func performInitialConflictResolution() {
-        self.state.analysisSessions = self.state.analysisSessions.map { session in
-            let sortedEdits = session.analyzedEdits.sorted { $0.timestamp > $1.timestamp }
-            var cleanedEdits: [AnalyzedEdit] = []
-            
-            for editToAdd in sortedEdits {
-                let nsRangeToAdd = NSRange(location: editToAdd.range.lowerBound, length: editToAdd.range.upperBound - editToAdd.range.lowerBound)
-                
-                let hasConflict = cleanedEdits.contains { existingEdit in
-                    let existingNSRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-                    return NSIntersectionRange(nsRangeToAdd, existingNSRange).length > 0
-                }
-                
-                if !hasConflict {
-                    cleanedEdits.append(editToAdd)
-                }
-            }
-            
-            var cleanedSession = session
-            cleanedSession.analyzedEdits = cleanedEdits.sorted { $0.range.lowerBound < $1.range.lowerBound }
-            return cleanedSession
-        }
+    public func updateSelectionState(to range: NSRange) {
+        self.state.selectionRange = CodableRange(from: range)
     }
 }

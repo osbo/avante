@@ -1,4 +1,9 @@
-// AnalysisController.swift
+//
+//  AnalysisController.swift
+//  avante
+//
+//  Created by Carl Osborne on 6/25/25.
+//
 
 import Foundation
 import SwiftUI
@@ -17,7 +22,6 @@ struct Edit {
 class AnalysisController: ObservableObject {
     @Published var documentText: String = "" {
         didSet {
-            // MODIFIED: Call the new method on the document model.
             if let doc = activeDocument, doc.state.fullText != documentText {
                 doc.updateFullText(to: documentText)
                 workspace?.markDocumentAsDirty(url: doc.url)
@@ -46,7 +50,6 @@ class AnalysisController: ObservableObject {
     private(set) weak var workspace: WorkspaceViewModel?
 
     private let jobProcessor = AnalysisJobProcessor()
-    private var currentAnalysisSessionID: UUID?
     private var sessionCreationTask: Task<Void, Error>?
     private var latestGeneratedMetrics: AnalysisMetricsGroup?
     
@@ -71,19 +74,13 @@ class AnalysisController: ObservableObject {
             }
 
             guard let firstEdit = processedEdits.first, let lastEdit = processedEdits.last else { return }
-            let combinedRange = NSRange(location: firstEdit.range.location, length: NSMaxRange(lastEdit.range) - firstEdit.range.location)
-            let combinedText = processedEdits.map(\.textAdded).joined(separator: " ")
-
-            let newAnalyzedEdit = AnalyzedEdit(
-                range: CodableRange(from: combinedRange),
-                text: combinedText,
-                analysisResult: analysisResult.metrics
+            
+            let newAnalysis = Analysis(
+                range: CodableRange(from: NSRange(location: firstEdit.range.location, length: NSMaxRange(lastEdit.range) - firstEdit.range.location)),
+                metrics: analysisResult.metrics
             )
             
-            // MODIFIED: Use the new document method to add the edit.
-            if let sessionID = self.currentAnalysisSessionID {
-                self.activeDocument?.addAnalyzedEdit(newAnalyzedEdit, toSessionWithID: sessionID)
-            }
+            self.activeDocument?.addAnalysis(newAnalysis)
     
         case .failure(let error):
             if self.reanalysisProgress == nil {
@@ -138,17 +135,19 @@ class AnalysisController: ObservableObject {
             return
         }
         
-        doc.performInitialConflictResolution()
+        // REMOVED: This method no longer exists on AvanteDocument
+        // doc.performInitialConflictResolution()
+        
         self.activeDocument = doc
 
         self.undoRedoStateCancellable = doc.$state
-            .receive(on: DispatchQueue.main) // Ensure the sink block runs on the main thread.
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] newState in
-                // The DispatchQueue.main.async wrapper is no longer needed here.
                 guard let self = self, let doc = self.activeDocument else { return }
                 
                 self.documentText = newState.fullText
-                self.metricsForDisplay = newState.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
+                // MODIFIED: Use the new 'analyses' array and its 'metrics' property
+                self.metricsForDisplay = newState.analyses.last?.metrics
                 self.latestGeneratedMetrics = self.metricsForDisplay
                 
                 if let selection = newState.selectionRange {
@@ -161,15 +160,16 @@ class AnalysisController: ObservableObject {
         
         doc.objectWillChange.send()
         
-        createNewAnalysisSession()
+        // MODIFIED: We no longer have a concept of a session at the document level
+        resetLiveSession()
     }
 
     func saveDocument() {
         guard let doc = activeDocument, let workspace = self.workspace else { return }
         
         workspace.isPerformingManualFileOperation = true
-        // MODIFIED: Call the new methods on the document model.
-        doc.performInitialConflictResolution()
+        // REMOVED: This method no longer exists on AvanteDocument
+        // doc.performInitialConflictResolution()
         doc.updateFullText(to: self.documentText)
         doc.save()
         workspace.markDocumentAsClean(url: doc.url)
@@ -179,9 +179,12 @@ class AnalysisController: ObservableObject {
         }
     }
     
+    // MODIFIED: Simplified queueing logic
     func queueForAnalysis(edit: Edit) {
         if !edit.isLinear {
-            createNewAnalysisSession(at: edit.range.location)
+            // A non-linear edit (e.g., pasting text) now just resets the live AI session
+            // to ensure it has the latest full context.
+            resetLiveSession()
         }
         
         Task {
@@ -196,9 +199,7 @@ class AnalysisController: ObservableObject {
         
         reanalysisTask?.cancel()
         
-        // MODIFIED: Call the new method on the document model.
-        doc.clearAnalysisSessions()
-        createNewAnalysisSession()
+        doc.clearAnalyses()
         self.objectWillChange.send()
         
         let fullText = doc.state.fullText
@@ -230,6 +231,7 @@ class AnalysisController: ObservableObject {
     }
     
     private func feedReanalysisQueue() async {
+        // ... (this method remains the same)
         while !reanalysisEditQueue.isEmpty {
             if Task.isCancelled {
                 await MainActor.run {
@@ -239,18 +241,20 @@ class AnalysisController: ObservableObject {
                 break
             }
             
-            _ = await jobProcessor.isIdle()
+            while await !jobProcessor.isIdle() {
+                try? await Task.sleep(nanoseconds: 10_000_000) // 0.1 seconds
+            }
             
             guard !reanalysisEditQueue.isEmpty else { break }
             let edit = reanalysisEditQueue.removeFirst()
+            
+            await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
             
             DispatchQueue.main.async {
                 let processedCount = self.reanalysisTotalEdits - self.reanalysisEditQueue.count
                 self.reanalysisProgress = Double(processedCount) / Double(self.reanalysisTotalEdits)
                 self.status = "Re-analyzing..."
             }
-            
-            await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
         }
         
         if !Task.isCancelled {
@@ -265,14 +269,16 @@ class AnalysisController: ObservableObject {
     }
     
     func recordUndoState() {
-        self.activeDocument?.recordNewState()
+        activeDocument?.updateSelectionState(to: self.textViewSelectionRange)
+        activeDocument?.recordNewState()
     }
     
     private func syncState(from documentState: DocumentState?) {
         guard let state = documentState else { return }
 
         self.documentText = state.fullText
-        self.metricsForDisplay = state.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
+        // MODIFIED: Use the new 'analyses' array
+        self.metricsForDisplay = state.analyses.last?.metrics
         self.latestGeneratedMetrics = self.metricsForDisplay
         
         if let selection = state.selectionRange {
@@ -282,13 +288,8 @@ class AnalysisController: ObservableObject {
     
     func undo() {
         guard let doc = activeDocument, doc.canUndo else { return }
-        
-        // Get the new state directly.
         if let newState = doc.undo() {
-            // Sync the controller's state.
             syncState(from: newState)
-            
-            // EXPLICIT COMMAND: After syncing, tell the view exactly where to put the cursor.
             if let selection = newState.selectionRange {
                 let range = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
                 forceSetSelectionSubject.send(range)
@@ -298,13 +299,8 @@ class AnalysisController: ObservableObject {
 
     func redo() {
         guard let doc = activeDocument, doc.canRedo else { return }
-        
-        // Get the new state directly.
         if let newState = doc.redo() {
-            // Sync the controller's state.
             syncState(from: newState)
-            
-            // EXPLICIT COMMAND: After syncing, tell the view exactly where to put the cursor.
             if let selection = newState.selectionRange {
                 let range = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
                 forceSetSelectionSubject.send(range)
@@ -312,45 +308,36 @@ class AnalysisController: ObservableObject {
         }
     }
     
-    // REMOVED: This logic now lives in AvanteDocument.swift
-    // private func resolveConflictsByAdding(...) { ... }
-    
-    // REMOVED: This logic now lives in AvanteDocument.swift
-    // private func resolveConflicts(in session: AnalysisSession) -> AnalysisSession { ... }
-    
     func updateMetricsForCursor(at position: Int) {
-        guard let allEdits = activeDocument?.state.analysisSessions.flatMap({ $0.analyzedEdits }), !allEdits.isEmpty else {
+        // 1. Get the new 'analyses' array from the active document's state.
+        guard let allAnalyses = activeDocument?.state.analyses, !allAnalyses.isEmpty else {
             metricsForDisplay = nil
             return
         }
 
-        if let currentEdit = allEdits.first(where: { NSLocationInRange(position, NSRange(location: $0.range.lowerBound, length: $0.range.upperBound - $0.range.lowerBound)) }) {
-            metricsForDisplay = currentEdit.analysisResult
-        } else if let precedingEdit = allEdits.filter({ $0.range.upperBound <= position }).last {
-            metricsForDisplay = precedingEdit.analysisResult
+        // 2. Check if the cursor is currently inside the range of a specific analysis.
+        if let currentAnalysis = allAnalyses.first(where: { NSLocationInRange(position, NSRange(location: $0.range.lowerBound, length: $0.range.upperBound - $0.range.lowerBound)) }) {
+            metricsForDisplay = currentAnalysis.metrics
+        
+        // 3. REIMPLEMENTED: If not, find the last analysis that the cursor is positioned after.
+        // This is the logic that restores your desired feature.
+        } else if let precedingAnalysis = allAnalyses.filter({ $0.range.upperBound <= position }).last {
+            metricsForDisplay = precedingAnalysis.metrics
+            
+        // 4. As a fallback (e.g., cursor at the start of the doc), clear the metrics.
         } else {
-            metricsForDisplay = latestGeneratedMetrics
+            metricsForDisplay = nil
         }
     }
     
     func adjustAnalysisRanges(for changeInLength: Int, at location: Int) {
-        // MODIFIED: Delegate this call to the document model.
         guard let doc = activeDocument, changeInLength != 0 else { return }
         doc.adjustAnalysisRanges(for: changeInLength, at: location)
         workspace?.markDocumentAsDirty(url: doc.url)
         objectWillChange.send()
     }
 
-    private func createNewAnalysisSession(at location: Int? = nil) {
-        print("SESSION BREAK: Creating new analysis session in data model.")
-        
-        let newSession = AnalysisSession(startLocation: location ?? 0, contextSummary: "", analyzedEdits: [])
-        // MODIFIED: Call the new method on the document model.
-        self.activeDocument?.addNewAnalysisSession(newSession)
-        self.currentAnalysisSessionID = newSession.id
-        
-        resetLiveSession()
-    }
+    // DELETED: The createNewAnalysisSession method is no longer needed.
     
     private func resetLiveSession() {
         sessionCreationTask = Task {
@@ -369,9 +356,7 @@ class AnalysisController: ObservableObject {
                 _ = try await session.respond(to: primingPrompt)
             }
             
-            if self.currentAnalysisSessionID == nil {
-                self.currentAnalysisSessionID = self.activeDocument?.state.analysisSessions.last?.id
-            }
+            // REMOVED: No more session ID logic
             
             await jobProcessor.set(session: session)
             

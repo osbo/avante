@@ -338,7 +338,7 @@ class WorkspaceViewModel: ObservableObject {
         let dataToSave: Data?
         if !isFolder {
             do {
-                let emptyState = DocumentState(fullText: "", analysisSessions: [])
+                let emptyState = DocumentState(fullText: "", analyses: [], selectionRange: nil)
                 dataToSave = try JSONEncoder().encode(emptyState)
             } catch {
                 print("Failed to encode new item state: \(error)"); return nil

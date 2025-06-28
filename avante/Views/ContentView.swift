@@ -252,7 +252,9 @@ struct WelcomeView: View {
             Button(action: onOpenWorkspace) {
                 HStack {
                     Image(systemName: "folder")
+                        .scaledToFit()
                     Text("Open...")
+                        .font(.system(size: 14, weight: .medium))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
