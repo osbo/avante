@@ -153,8 +153,6 @@ class AnalysisController: ObservableObject {
             self.status = "Select a file to begin."
             return
         }
-
-        if self.activeDocument?.url == doc.url { return }
         
         doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
         
@@ -173,8 +171,11 @@ class AnalysisController: ObservableObject {
         workspace.isPerformingManualFileOperation = true
         doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
         doc.state.fullText = self.documentText
-        doc.save()
-        workspace.markDocumentAsClean(url: doc.url)
+        
+        // FIX: The save responsibility is moved to the WorkspaceViewModel.
+        workspace.save(document: doc)
+        
+        // The markDocumentAsClean call is now handled inside workspace.save()
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             workspace.isPerformingManualFileOperation = false

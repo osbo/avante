@@ -11,18 +11,14 @@ import Combine
 
 @main
 struct avanteApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var workspace = WorkspaceViewModel()
     @AppStorage("activeHighlight") private var activeHighlightRaw: String = ""
     @AppStorage("isFocusModeEnabled") private var isFocusModeEnabled: Bool = false
 
     var body: some Scene {
-        return WindowGroup {
+        Window("Avante", id: "com.carlosborne.avante.main-window") {
             ContentView(workspace: workspace, isFocusModeEnabled: $isFocusModeEnabled)
-                .onOpenURL { url in
-                    // FIX: The method was renamed from 'openFile' to 'open'.
-                    // This is the corrected method call.
-                    workspace.open(url: url)
-                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -32,11 +28,13 @@ struct avanteApp: App {
                     workspace.createNewFile(in: workspace.selectedItem)
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                .disabled(workspace.isSingleFileMode)
                 
                 Button("New Folder") {
                     workspace.createNewFolder(in: workspace.selectedItem)
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(workspace.isSingleFileMode)
                 
                 Divider()
                 
@@ -44,6 +42,14 @@ struct avanteApp: App {
                     workspace.openFileOrFolder()
                 }
                 .keyboardShortcut("o", modifiers: .command)
+                
+                Divider()
+                
+                Button("Close") {
+                    NSApp.keyWindow?.close()
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(workspace.rootItem == nil)
             }
             
             CommandGroup(replacing: .saveItem) {
@@ -78,7 +84,7 @@ struct avanteApp: App {
                         workspace.deleteItem(itemToDelete)
                     }
                 }
-                .disabled(workspace.selectedItem == nil)
+                .disabled(workspace.selectedItem == nil || workspace.isSingleFileMode)
             }
             
             // View Menu with dial functionality
@@ -100,25 +106,20 @@ struct avanteApp: App {
                     workspace.selectNextFile()
                 }
                 .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(workspace.isSingleFileMode || workspace.selectedFileForEditor == nil)
                 
                 Button("Previous File") {
                     workspace.selectPreviousFile()
                 }
                 .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(workspace.isSingleFileMode || workspace.selectedFileForEditor == nil)
             }
         }
     }
 }
 
-// Defines custom Notification names for various actions
-extension Notification.Name {
-    static let saveAction = Notification.Name("com.carlosborne.avante.saveAction")
-    static let renameAction = Notification.Name("com.carlosborne.avante.renameAction")
-    static let toggleHighlight = Notification.Name("com.carlosborne.avante.toggleHighlight")
-    static let clearHighlights = Notification.Name("com.carlosborne.avante.clearHighlights")
-    static let triggerRename = Notification.Name("com.carlosborne.avante.triggerRename")
-    static let reanalyzeAction = Notification.Name("com.carlosborne.avante.reanalyzeAction")
-}
+// FIX: The Notification.Name extension has been moved to SharedTypes.swift
+// to resolve a Swift 6 concurrency warning.
 
 struct HighlightMenuItems: View {
     @Binding var activeHighlightRaw: String
