@@ -23,6 +23,7 @@ extension Notification.Name {
     static let clearHighlights = Notification.Name("com.carlosborne.avante.clearHighlights")
     static let triggerRename = Notification.Name("com.carlosborne.avante.triggerRename")
     static let reanalyzeAction = Notification.Name("com.carlosborne.avante.reanalyzeAction")
-    // FIX: Moved from avanteApp.swift to resolve concurrency warning.
+    static let undoAction = Notification.Name("com.carlosborne.avante.undoAction")
+    static let redoAction = Notification.Name("com.carlosborne.avante.redoAction")
     static let openFileFromFinder = Notification.Name("com.carlosborne.avante.openFileFromFinder")
 }

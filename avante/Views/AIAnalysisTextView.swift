@@ -86,6 +86,7 @@ struct AIAnalysisTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 20, height: 20)
         textView.isEditable = true
         textView.isSelectable = true
+        textView.allowsUndo = false
 
         guard let textStorage = textView.textStorage,
               let originalLayoutManager = textView.layoutManager,
@@ -106,30 +107,38 @@ struct AIAnalysisTextView: NSViewRepresentable {
 
         return scrollView
     }
-
+    
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = nsView.documentView as? NSTextView,
               let layoutManager = textView.layoutManager as? HighlightingLayoutManager else { return }
 
+        // This block now correctly handles both text and selection updates together.
         if textView.string != self.text {
             context.coordinator.isUpdatingFromModel = true
             
-            let selectedRanges = textView.selectedRanges
+            // 1. Update the text content from the model.
             textView.string = self.text
-            textView.selectedRanges = selectedRanges
+            
+            // 2. MOVED: Update the selection only when the text is being updated from the model.
+            // This restores the cursor correctly on undo/redo without interfering with typing.
+            if textView.selectedRange() != analysisController.textViewSelectionRange {
+                textView.selectedRange = analysisController.textViewSelectionRange
+            }
             
             DispatchQueue.main.async {
                 context.coordinator.isUpdatingFromModel = false
             }
         }
         
+        // REMOVED: The selection sync logic is no longer here.
+        
+        // Update analysis and highlight data
         let allEdits = analysisController.activeDocument?.state.analysisSessions.flatMap { $0.analyzedEdits } ?? []
         layoutManager.analysisData = allEdits
         layoutManager.activeHighlight = analysisController.activeHighlight
         
-        context.coordinator.updateFocus(on: textView)
-        
+        // Invalidate display to force a redraw of highlights
         if let textContainer = textView.textContainer {
             let visibleRect = nsView.documentVisibleRect
             let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
@@ -227,42 +236,47 @@ struct AIAnalysisTextView: NSViewRepresentable {
         
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            
             let selectionRange = textView.selectedRange()
-            
+
+            // Defer the entire block of work to fix the "publishing changes" warning
+            // and to ensure the data flow is predictable.
             DispatchQueue.main.async {
+                // 1. Update the controller's state.
                 self.controller.textViewSelectionRange = selectionRange
                 self.controller.updateMetricsForCursor(at: selectionRange.location)
+                
+                // 2. Now that the controller's state is fresh, update the focus effect.
+                self.updateFocus(on: textView)
             }
         }
         
         func textStorage(_ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
             
+            // This guard correctly prevents this logic from running when the text is
+            // being updated programmatically (e.g., during an undo operation).
             guard !isUpdatingFromModel else { return }
             guard editedMask.contains(.editedCharacters) else { return }
             
-            let newText = textStorage.string
+            // The operations below are now synchronous, eliminating the race condition.
             
-            DispatchQueue.main.async {
-                self.parent.text = newText
-                
-                // If the length of the text changed (an insertion or deletion occurred)...
-                if delta != 0 {
-                    // Call the new, unified function to adjust all stored analysis ranges.
-                    self.controller.adjustAnalysisRanges(for: delta, at: editedRange.location)
-                }
+            let newText = textStorage.string
+            self.parent.text = newText // Update the SwiftUI-managed state.
+            
+            // Adjust existing analysis data to account for the text change.
+            if delta != 0 {
+                self.controller.adjustAnalysisRanges(for: delta, at: editedRange.location)
+            }
 
-                // If text was added, we still process the new characters for live analysis.
-                if delta > 0 {
-                    let addedText = (newText as NSString).substring(with: editedRange)
-                    for (offset, character) in addedText.enumerated() {
-                        let characterLocation = editedRange.location + offset
-                        
-                        if character.unicodeScalars.allSatisfy(self.wordSeparators.contains) {
-                            self.flushWordBuffer(at: characterLocation)
-                        } else {
-                            self.wordBuffer.append(character)
-                        }
+            // If text was added (not just deleted), process it for new analysis.
+            if delta > 0 {
+                let addedText = (newText as NSString).substring(with: editedRange)
+                for (offset, character) in addedText.enumerated() {
+                    let characterLocation = editedRange.location + offset
+                    
+                    if character.unicodeScalars.allSatisfy(self.wordSeparators.contains) {
+                        self.flushWordBuffer(at: characterLocation)
+                    } else {
+                        self.wordBuffer.append(character)
                     }
                 }
             }
@@ -282,6 +296,8 @@ struct AIAnalysisTextView: NSViewRepresentable {
             
             // Safety check against the now-guaranteed-to-be-current text model.
             guard wordLocation >= 0, NSMaxRange(wordRange) <= (fullText as NSString).length else { return }
+            
+            self.controller.recordUndoState()
 
             let edit = Edit(
                 textAdded: word,

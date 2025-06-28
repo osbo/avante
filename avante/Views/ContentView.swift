@@ -54,6 +54,18 @@ struct ContentView: View {
         .onChange(of: isFocusModeEnabled) { _, newValue in
             analysisController.isFocusModeEnabled = newValue
         }
+        .onReceive(NotificationCenter.default.publisher(for: .undoAction)) { _ in
+            analysisController.undo()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .redoAction)) { _ in
+            analysisController.redo()
+        }
+        .onChange(of: analysisController.canUndo) { _, newValue in
+            workspace.canUndo = newValue
+        }
+        .onChange(of: analysisController.canRedo) { _, newValue in
+            workspace.canRedo = newValue
+        }
     }
 
     private var singleFileView: some View {

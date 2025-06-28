@@ -1,9 +1,4 @@
-//
-//  AnalysisController.swift
-//  avante
-//
-//  Created by Carl Osborne on 6/24/25.
-//
+// AnalysisController.swift
 
 import Foundation
 import SwiftUI
@@ -22,11 +17,10 @@ struct Edit {
 class AnalysisController: ObservableObject {
     @Published var documentText: String = "" {
         didSet {
-            if activeDocument?.state.fullText != documentText {
-                activeDocument?.state.fullText = documentText
-                if let doc = activeDocument {
-                    workspace?.markDocumentAsDirty(url: doc.url)
-                }
+            // MODIFIED: Call the new method on the document model.
+            if let doc = activeDocument, doc.state.fullText != documentText {
+                doc.updateFullText(to: documentText)
+                workspace?.markDocumentAsDirty(url: doc.url)
             }
         }
     }
@@ -42,6 +36,8 @@ class AnalysisController: ObservableObject {
     @Published var isFocusModeEnabled: Bool = false
     @Published var isMouseStationary = true
     @Published var textViewSelectionRange = NSRange(location: 0, length: 0)
+    @Published private(set) var canUndo: Bool = false
+    @Published private(set) var canRedo: Bool = false
 
     let focusEditorSubject = PassthroughSubject<Void, Never>()
 
@@ -53,16 +49,15 @@ class AnalysisController: ObservableObject {
     private var sessionCreationTask: Task<Void, Error>?
     private var latestGeneratedMetrics: AnalysisMetricsGroup?
     
-    // ADDED: Queue and task for the re-analysis feeder
     private var reanalysisEditQueue: [Edit] = []
     private var reanalysisTotalEdits: Int = 0
     private var reanalysisTask: Task<Void, Never>?
     
     private var mouseStationaryTimer: AnyCancellable?
     private let mouseStationaryDelay = 0.8 // seconds
+    
+    private var undoRedoStateCancellable: AnyCancellable?
 
-    // ADDED: A default completion handler to be shared by both manual and re-analysis queuing.
-    // This ensures the context overflow logic is always applied.
     private lazy var defaultAnalysisCompletionHandler: @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void = { [weak self] result, processedEdits in
         guard let self = self else { return }
 
@@ -71,7 +66,6 @@ class AnalysisController: ObservableObject {
             self.latestGeneratedMetrics = analysisResult.metrics
             self.metricsForDisplay = analysisResult.metrics
             
-            // Don't overwrite re-analysis status with "Analysis complete."
             if self.reanalysisProgress == nil {
                 self.status = "Analysis complete."
             }
@@ -86,20 +80,19 @@ class AnalysisController: ObservableObject {
                 analysisResult: analysisResult.metrics
             )
             
-            self.resolveConflictsByAdding(newEdit: newAnalyzedEdit)
+            // MODIFIED: Use the new document method to add the edit.
+            if let sessionID = self.currentAnalysisSessionID {
+                self.activeDocument?.addAnalyzedEdit(newAnalyzedEdit, toSessionWithID: sessionID)
+            }
     
         case .failure(let error):
-            // MODIFIED: Added specific handling for the guardrail violation error.
             if self.reanalysisProgress == nil {
                  self.status = "Analysis failed."
             }
 
-            // Check for the specific error type to provide better user feedback.
             if let generationError = error as? FoundationModels.LanguageModelSession.GenerationError,
                case .guardrailViolation = generationError {
                 self.status = "Skipped sensitive content."
-                // The job processor has already prevented this from being re-queued.
-                // The analysis process will now continue with the next word.
             }
             else if String(describing: error).contains("Context length") {
                 print("🚨 Context overflow detected! Resetting session.")
@@ -109,62 +102,64 @@ class AnalysisController: ObservableObject {
     }
     
     func mouseDidMove() {
-        if isMouseStationary {
-            isMouseStationary = false
-        }
-        
+        if isMouseStationary { isMouseStationary = false }
         mouseStationaryTimer?.cancel()
         mouseStationaryTimer = Just(())
             .delay(for: .seconds(mouseStationaryDelay), scheduler: DispatchQueue.main)
-            .sink { [weak self] in
-                self?.isMouseStationary = true
-            }
+            .sink { [weak self] in self?.isMouseStationary = true }
     }
     
     func mouseDidExit() {
         mouseStationaryTimer?.cancel()
-        if !isMouseStationary {
-            isMouseStationary = true
-        }
+        if !isMouseStationary { isMouseStationary = true }
     }
 
     func toggleHighlight(for metric: MetricType) {
-        if activeHighlight == metric {
-            activeHighlight = nil
-        } else {
-            activeHighlight = metric
-        }
+        activeHighlight = (activeHighlight == metric) ? nil : metric
     }
 
     func setWorkspace(_ workspace: WorkspaceViewModel) {
         self.workspace = workspace
     }
-
+    
     func loadDocument(document: AvanteDocument?) {
         reanalysisTask?.cancel()
         reanalysisProgress = nil
-        
         Task { await jobProcessor.clearQueue() }
+        undoRedoStateCancellable?.cancel()
         
         guard let doc = document else {
             self.activeDocument = nil
             self.documentText = ""
             self.metricsForDisplay = nil
             self.status = "Select a file to begin."
+            self.canUndo = false
+            self.canRedo = false
             return
         }
-
-        // FIX: Removed the check `if self.activeDocument?.url == doc.url { return }`.
-        // This ensures that the controller's state is always reset with the new
-        // document's data, forcing a UI update even if the URL is the same.
         
-        doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
-        
+        doc.performInitialConflictResolution()
         self.activeDocument = doc
-        self.documentText = doc.state.fullText
-        self.metricsForDisplay = doc.state.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
-        self.latestGeneratedMetrics = self.metricsForDisplay
-        self.status = "Document loaded."
+
+        self.undoRedoStateCancellable = doc.$state
+            .receive(on: DispatchQueue.main) // Ensure the sink block runs on the main thread.
+            .sink { [weak self] newState in
+                // The DispatchQueue.main.async wrapper is no longer needed here.
+                guard let self = self, let doc = self.activeDocument else { return }
+                
+                self.documentText = newState.fullText
+                self.metricsForDisplay = newState.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
+                self.latestGeneratedMetrics = self.metricsForDisplay
+                
+                if let selection = newState.selectionRange {
+                    self.textViewSelectionRange = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
+                }
+
+                if self.canUndo != doc.canUndo { self.canUndo = doc.canUndo }
+                if self.canRedo != doc.canRedo { self.canRedo = doc.canRedo }
+            }
+        
+        doc.objectWillChange.send()
         
         createNewAnalysisSession()
     }
@@ -173,8 +168,9 @@ class AnalysisController: ObservableObject {
         guard let doc = activeDocument, let workspace = self.workspace else { return }
         
         workspace.isPerformingManualFileOperation = true
-        doc.state.analysisSessions = doc.state.analysisSessions.map { resolveConflicts(in: $0) }
-        doc.state.fullText = self.documentText
+        // MODIFIED: Call the new methods on the document model.
+        doc.performInitialConflictResolution()
+        doc.updateFullText(to: self.documentText)
         doc.save()
         workspace.markDocumentAsClean(url: doc.url)
         
@@ -190,30 +186,23 @@ class AnalysisController: ObservableObject {
         
         Task {
             _ = await sessionCreationTask?.result
-            
-            if reanalysisProgress == nil {
-                self.status = "Word queued..."
-            }
-            
+            if reanalysisProgress == nil { self.status = "Word queued..." }
             await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
         }
     }
     
-    // ADDED: Main entry point for the re-analysis feature.
     func reanalyzeActiveDocument() {
         guard let doc = activeDocument, reanalysisProgress == nil else { return }
         
-        reanalysisTask?.cancel() // Cancel any previous re-analysis
+        reanalysisTask?.cancel()
         
-        // 1. Clear existing analysis data
-        doc.state.analysisSessions.removeAll()
-        createNewAnalysisSession() // A re-analyzed doc is one big session
-        self.objectWillChange.send() // Force UI to update and clear highlights
+        // MODIFIED: Call the new method on the document model.
+        doc.clearAnalysisSessions()
+        createNewAnalysisSession()
+        self.objectWillChange.send()
         
-        // 2. Prepare a queue of edits, one for each word in the document
         let fullText = doc.state.fullText
         var edits: [Edit] = []
-        
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.string = fullText
         
@@ -221,15 +210,8 @@ class AnalysisController: ObservableObject {
             let nsRange = NSRange(tokenRange, in: fullText)
             let word = String(fullText[tokenRange])
             
-            // We only want to create analysis jobs for actual words.
             if !word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let edit = Edit(
-                    textAdded: word,
-                    range: nsRange,
-                    isLinear: true,
-                    fullDocumentContext: fullText
-                )
-                edits.append(edit)
+                edits.append(Edit(textAdded: word, range: nsRange, isLinear: true, fullDocumentContext: fullText))
             }
             return true
         }
@@ -244,12 +226,9 @@ class AnalysisController: ObservableObject {
         self.reanalysisProgress = 0.0
         self.status = "Re-analyzing..."
 
-        reanalysisTask = Task {
-            await feedReanalysisQueue()
-        }
+        reanalysisTask = Task { await feedReanalysisQueue() }
     }
     
-    // ADDED: Feeder task that queues words, waiting for the processor to be idle between each one.
     private func feedReanalysisQueue() async {
         while !reanalysisEditQueue.isEmpty {
             if Task.isCancelled {
@@ -260,26 +239,20 @@ class AnalysisController: ObservableObject {
                 break
             }
             
-            // This is the key: wait for the job processor to be free.
-            // If it's busy (e.g., handling a context overflow reset), this will wait.
-            await waitUntilJobProcessorIsIdle()
+            _ = await jobProcessor.isIdle()
             
             guard !reanalysisEditQueue.isEmpty else { break }
             let edit = reanalysisEditQueue.removeFirst()
             
-            // Update progress on the main thread
             DispatchQueue.main.async {
                 let processedCount = self.reanalysisTotalEdits - self.reanalysisEditQueue.count
-                let progress = Double(processedCount) / Double(self.reanalysisTotalEdits)
-                self.reanalysisProgress = progress
+                self.reanalysisProgress = Double(processedCount) / Double(self.reanalysisTotalEdits)
                 self.status = "Re-analyzing..."
             }
             
-            // Use the standard analysis queue with the standard handler
             await jobProcessor.queue(edit: edit, onResult: self.defaultAnalysisCompletionHandler)
         }
         
-        // Finished
         if !Task.isCancelled {
             await MainActor.run {
                 self.reanalysisProgress = nil
@@ -291,49 +264,45 @@ class AnalysisController: ObservableObject {
         }
     }
     
-    // ADDED: Helper to wait for the analysis processor to be idle.
-    private func waitUntilJobProcessorIsIdle() async {
-        while await !jobProcessor.isIdle() {
-            try? await Task.sleep(nanoseconds: 10_000_000) // wait 0.1 seconds
-        }
+    func recordUndoState() {
+        self.activeDocument?.recordNewState()
     }
     
-    private func resolveConflictsByAdding(newEdit: AnalyzedEdit) {
-        guard let currentID = self.currentAnalysisSessionID,
-              let sessionIndex = self.activeDocument?.state.analysisSessions.firstIndex(where: { $0.id == currentID }) else { return }
+    private func syncState(from documentState: DocumentState?) {
+        guard let state = documentState else { return }
+
+        self.documentText = state.fullText
+        self.metricsForDisplay = state.analysisSessions.flatMap { $0.analyzedEdits }.last?.analysisResult
+        self.latestGeneratedMetrics = self.metricsForDisplay
         
-        let newRange = NSRange(location: newEdit.range.lowerBound, length: newEdit.range.upperBound - newEdit.range.lowerBound)
-        
-        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.removeAll { existingEdit in
-            let existingRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-            return NSIntersectionRange(newRange, existingRange).length > 0 || NSLocationInRange(newRange.location, existingRange)
+        if let selection = state.selectionRange {
+            self.textViewSelectionRange = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
         }
-        
-        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.append(newEdit)
-        self.activeDocument?.state.analysisSessions[sessionIndex].analyzedEdits.sort { $0.range.lowerBound < $1.range.lowerBound }
     }
 
-    private func resolveConflicts(in session: AnalysisSession) -> AnalysisSession {
-        let sortedEdits = session.analyzedEdits.sorted { $0.timestamp > $1.timestamp }
-        var cleanedEdits: [AnalyzedEdit] = []
-        
-        for editToAdd in sortedEdits {
-            let nsRangeToAdd = NSRange(location: editToAdd.range.lowerBound, length: editToAdd.range.upperBound - editToAdd.range.lowerBound)
-            
-            let hasConflict = cleanedEdits.contains { existingEdit in
-                let existingNSRange = NSRange(location: existingEdit.range.lowerBound, length: existingEdit.range.upperBound - existingEdit.range.lowerBound)
-                return NSIntersectionRange(nsRangeToAdd, existingNSRange).length > 0
-            }
-            
-            if !hasConflict {
-                cleanedEdits.append(editToAdd)
-            }
-        }
-        
-        var cleanedSession = session
-        cleanedSession.analyzedEdits = cleanedEdits.sorted { $0.range.lowerBound < $1.range.lowerBound }
-        return cleanedSession
+    // REPLACE your existing undo() method with this.
+    func undo() {
+        guard let doc = activeDocument, doc.canUndo else { return }
+        // The document now returns the new state directly.
+        let newState = doc.undo()
+        // Immediately sync the controller with this definitive new state.
+        syncState(from: newState)
     }
+
+    // REPLACE your existing redo() method with this.
+    func redo() {
+        guard let doc = activeDocument, doc.canRedo else { return }
+        // The document now returns the new state directly.
+        let newState = doc.redo()
+        // Immediately sync the controller with this definitive new state.
+        syncState(from: newState)
+    }
+    
+    // REMOVED: This logic now lives in AvanteDocument.swift
+    // private func resolveConflictsByAdding(...) { ... }
+    
+    // REMOVED: This logic now lives in AvanteDocument.swift
+    // private func resolveConflicts(in session: AnalysisSession) -> AnalysisSession { ... }
     
     func updateMetricsForCursor(at position: Int) {
         guard let allEdits = activeDocument?.state.analysisSessions.flatMap({ $0.analyzedEdits }), !allEdits.isEmpty else {
@@ -351,60 +320,19 @@ class AnalysisController: ObservableObject {
     }
     
     func adjustAnalysisRanges(for changeInLength: Int, at location: Int) {
+        // MODIFIED: Delegate this call to the document model.
         guard let doc = activeDocument, changeInLength != 0 else { return }
-
-        let delta = changeInLength
-        var hasMadeChanges = false
-
-        // Determine the range of text that was replaced.
-        // For a pure insertion, replacedLength is 0.
-        // For a deletion of N chars, replacedLength is N.
-        let replacedLength = (delta > 0) ? 0 : abs(delta)
-        let affectedRange = NSRange(location: location, length: replacedLength)
-
-        // Iterate through all sessions to update their edits.
-        for sessionIndex in 0..<doc.state.analysisSessions.count {
-            var newEdits: [AnalyzedEdit] = []
-            let originalEdits = doc.state.analysisSessions[sessionIndex].analyzedEdits
-
-            for var edit in originalEdits {
-                let editRange = NSRange(location: edit.range.lowerBound, length: edit.range.upperBound - edit.range.lowerBound)
-                var shouldDiscard = false
-
-                if NSMaxRange(editRange) <= location {
-                    // Case 1: The edit is entirely BEFORE the change. Keep it as is.
-                } else if editRange.location >= NSMaxRange(affectedRange) {
-                    // Case 2: The edit is entirely AFTER the changed range. Shift it.
-                    edit.range = CodableRange(
-                        lowerBound: edit.range.lowerBound + delta,
-                        upperBound: edit.range.upperBound + delta
-                    )
-                    hasMadeChanges = true
-                } else {
-                    // Case 3: The edit overlaps with the changed range. It is now invalid and must be discarded.
-                    shouldDiscard = true
-                    hasMadeChanges = true
-                }
-
-                if !shouldDiscard {
-                    newEdits.append(edit)
-                }
-            }
-            // Replace the old list of edits with the new, corrected one.
-            doc.state.analysisSessions[sessionIndex].analyzedEdits = newEdits
-        }
-
-        if hasMadeChanges {
-            workspace?.markDocumentAsDirty(url: doc.url)
-            objectWillChange.send()
-        }
+        doc.adjustAnalysisRanges(for: changeInLength, at: location)
+        workspace?.markDocumentAsDirty(url: doc.url)
+        objectWillChange.send()
     }
 
     private func createNewAnalysisSession(at location: Int? = nil) {
         print("SESSION BREAK: Creating new analysis session in data model.")
         
         let newSession = AnalysisSession(startLocation: location ?? 0, contextSummary: "", analyzedEdits: [])
-        self.activeDocument?.state.analysisSessions.append(newSession)
+        // MODIFIED: Call the new method on the document model.
+        self.activeDocument?.addNewAnalysisSession(newSession)
         self.currentAnalysisSessionID = newSession.id
         
         resetLiveSession()
@@ -412,7 +340,6 @@ class AnalysisController: ObservableObject {
     
     private func resetLiveSession() {
         sessionCreationTask = Task {
-            // During re-analysis, the status is controlled by the feeder, so don't show "Priming..."
             if reanalysisProgress == nil {
                 self.status = "Priming session..."
             }

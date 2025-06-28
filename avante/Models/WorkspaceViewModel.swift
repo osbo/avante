@@ -30,6 +30,8 @@ class WorkspaceViewModel: ObservableObject {
     
     // New property to track single-file mode
     @Published var isSingleFileMode: Bool = false
+    @Published var canUndo: Bool = false
+    @Published var canRedo: Bool = false
     
     private var documentCache: [URL: AvanteDocument] = [:]
     
@@ -46,6 +48,7 @@ class WorkspaceViewModel: ObservableObject {
     private var fileSystemMonitor = FileSystemMonitor()
     private var securityScopedURL: URL?
     
+    @MainActor
     init() {
         restoreWorkspace()
         setupFileSystemMonitoring()
@@ -59,6 +62,7 @@ class WorkspaceViewModel: ObservableObject {
         )
     }
     
+    @MainActor
     deinit {
         securityScopedURL?.stopAccessingSecurityScopedResource()
         NotificationCenter.default.removeObserver(self, name: .openFileFromFinder, object: nil)

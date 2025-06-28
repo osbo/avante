@@ -60,6 +60,20 @@ struct avanteApp: App {
                 .keyboardShortcut("s", modifiers: .command)
             }
             
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NotificationCenter.default.post(name: .undoAction, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!workspace.canUndo)
+
+                Button("Redo") {
+                    NotificationCenter.default.post(name: .redoAction, object: nil)
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!workspace.canRedo)
+            }
+            
             // File editing operations
             CommandGroup(after: .saveItem) {
                 Button("Rename") {
