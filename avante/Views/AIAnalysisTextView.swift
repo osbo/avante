@@ -113,10 +113,13 @@ struct AIAnalysisTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView,
               let layoutManager = textView.layoutManager as? HighlightingLayoutManager else { return }
 
-        // This block is now only responsible for text updates.
         if textView.string != self.text {
             context.coordinator.isUpdatingFromModel = true
             textView.string = self.text
+            
+            // REMOVED: All selection logic is gone from here. It is now
+            // handled by the explicit command pipeline.
+            
             DispatchQueue.main.async {
                 context.coordinator.isUpdatingFromModel = false
             }
@@ -171,15 +174,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
                     self?.textView?.window?.makeFirstResponder(self?.textView)
                 }
                 .store(in: &cancellables)
-            
-            controller.$textViewSelectionRange
+            controller.forceSetSelectionSubject
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self] newRange in
-                    // When the controller's selection changes, update the text view,
-                    // but only if the view isn't already correct. This prevents feedback loops.
-                    if self?.textView?.selectedRange() != newRange {
-                        self?.textView?.selectedRange = newRange
-                    }
+                .sink { [weak self] rangeToSet in
+                    // Directly set the text view's selection when the command is received.
+                    self?.textView?.selectedRange = rangeToSet
                 }
                 .store(in: &cancellables)
         }
@@ -238,10 +237,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             let selectionRange = textView.selectedRange()
 
-            // Defer the entire block of work to fix the "publishing changes" warning
-            // and to ensure the data flow is predictable.
+            // This is the correct pattern to fix the warning. We defer the state
+            // update to the next run loop cycle. Because the rest of our logic
+            // is now correct, this will no longer cause cursor placement bugs.
             DispatchQueue.main.async {
-                // 1. Update the controller's state.
+                // 1. Update the controller's state from the view.
                 self.controller.textViewSelectionRange = selectionRange
                 self.controller.updateMetricsForCursor(at: selectionRange.location)
                 

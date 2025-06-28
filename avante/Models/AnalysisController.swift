@@ -40,6 +40,7 @@ class AnalysisController: ObservableObject {
     @Published private(set) var canRedo: Bool = false
 
     let focusEditorSubject = PassthroughSubject<Void, Never>()
+    let forceSetSelectionSubject = PassthroughSubject<NSRange, Never>()
 
     private(set) var activeDocument: AvanteDocument?
     private(set) weak var workspace: WorkspaceViewModel?
@@ -55,7 +56,6 @@ class AnalysisController: ObservableObject {
     
     private var mouseStationaryTimer: AnyCancellable?
     private let mouseStationaryDelay = 0.8 // seconds
-    
     private var undoRedoStateCancellable: AnyCancellable?
 
     private lazy var defaultAnalysisCompletionHandler: @MainActor (Result<AnalysisResult, Error>, [Edit]) -> Void = { [weak self] result, processedEdits in
@@ -279,23 +279,37 @@ class AnalysisController: ObservableObject {
             self.textViewSelectionRange = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
         }
     }
-
-    // REPLACE your existing undo() method with this.
+    
     func undo() {
         guard let doc = activeDocument, doc.canUndo else { return }
-        // The document now returns the new state directly.
-        let newState = doc.undo()
-        // Immediately sync the controller with this definitive new state.
-        syncState(from: newState)
+        
+        // Get the new state directly.
+        if let newState = doc.undo() {
+            // Sync the controller's state.
+            syncState(from: newState)
+            
+            // EXPLICIT COMMAND: After syncing, tell the view exactly where to put the cursor.
+            if let selection = newState.selectionRange {
+                let range = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
+                forceSetSelectionSubject.send(range)
+            }
+        }
     }
 
-    // REPLACE your existing redo() method with this.
     func redo() {
         guard let doc = activeDocument, doc.canRedo else { return }
-        // The document now returns the new state directly.
-        let newState = doc.redo()
-        // Immediately sync the controller with this definitive new state.
-        syncState(from: newState)
+        
+        // Get the new state directly.
+        if let newState = doc.redo() {
+            // Sync the controller's state.
+            syncState(from: newState)
+            
+            // EXPLICIT COMMAND: After syncing, tell the view exactly where to put the cursor.
+            if let selection = newState.selectionRange {
+                let range = NSRange(location: selection.lowerBound, length: selection.upperBound - selection.lowerBound)
+                forceSetSelectionSubject.send(range)
+            }
+        }
     }
     
     // REMOVED: This logic now lives in AvanteDocument.swift
