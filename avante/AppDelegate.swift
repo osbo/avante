@@ -7,6 +7,7 @@
 
 import AppKit
 import SwiftUI
+import Foundation
 
 class AppDelegate: NSObject, NSApplicationDelegate {
 

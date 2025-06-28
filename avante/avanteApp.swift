@@ -43,13 +43,14 @@ struct avanteApp: App {
                 }
                 .keyboardShortcut("o", modifiers: .command)
                 
-                Divider()
-                
                 Button("Close") {
-                    NSApp.keyWindow?.close()
+                    if workspace.rootItem != nil {
+                        workspace.clearSession()
+                    } else {
+                        NSApp.keyWindow?.close()
+                    }
                 }
                 .keyboardShortcut("w", modifiers: .command)
-                .disabled(workspace.rootItem == nil)
             }
             
             CommandGroup(replacing: .saveItem) {
@@ -59,12 +60,19 @@ struct avanteApp: App {
                 .keyboardShortcut("s", modifiers: .command)
             }
             
-            // Re-ordered this group for consistency
+            // File editing operations
             CommandGroup(after: .saveItem) {
                 Button("Rename") {
                     NotificationCenter.default.post(name: .renameAction, object: workspace.selectedItem)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
+                
+                Button("Delete") {
+                    if let itemToDelete = workspace.selectedItem {
+                        workspace.deleteItem(itemToDelete)
+                    }
+                }
+                .disabled(workspace.selectedItem == nil || workspace.isSingleFileMode)
                 
                 Divider()
                 
@@ -75,16 +83,6 @@ struct avanteApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option])
                 .disabled(workspace.selectedFileForEditor == nil)
-            }
-            
-            CommandGroup(after: .saveItem) {
-                Divider()
-                Button("Delete") {
-                    if let itemToDelete = workspace.selectedItem {
-                        workspace.deleteItem(itemToDelete)
-                    }
-                }
-                .disabled(workspace.selectedItem == nil || workspace.isSingleFileMode)
             }
             
             // View Menu with dial functionality

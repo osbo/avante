@@ -25,5 +25,4 @@ extension Notification.Name {
     static let reanalyzeAction = Notification.Name("com.carlosborne.avante.reanalyzeAction")
     // FIX: Moved from avanteApp.swift to resolve concurrency warning.
     static let openFileFromFinder = Notification.Name("com.carlosborne.avante.openFileFromFinder")
-    static let loadDocument = Notification.Name("com.carlosborne.avante.loadDocument")
 }

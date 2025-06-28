@@ -35,19 +35,24 @@ struct ContentView: View {
         .onAppear {
             analysisController.setWorkspace(workspace)
             analysisController.isFocusModeEnabled = isFocusModeEnabled
+            if workspace.isSingleFileMode, let item = workspace.selectedFileForEditor {
+                let documentToLoad = workspace.getDocument(for: item)
+                analysisController.loadDocument(document: documentToLoad)
+            }
+        }
+        .onChange(of: workspace.selectedFileForEditor) { _, newFileItem in
+            guard let item = newFileItem else {
+                analysisController.loadDocument(document: nil)
+                return
+            }
+            let documentToLoad = workspace.getDocument(for: item)
+            analysisController.loadDocument(document: documentToLoad)
         }
         .onChange(of: activeHighlightRaw) { _, newValue in
             analysisController.activeHighlight = MetricType(rawValue: newValue)
         }
         .onChange(of: isFocusModeEnabled) { _, newValue in
             analysisController.isFocusModeEnabled = newValue
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .loadDocument)) { notification in
-            if let document = notification.object as? AvanteDocument {
-                analysisController.loadDocument(document: document)
-            } else {
-                analysisController.loadDocument(document: nil)
-            }
         }
     }
 
@@ -232,29 +237,16 @@ struct WelcomeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             
-            VStack(spacing: 12) {
-                Button(action: onOpenWorkspace) {
-                    HStack {
-                        Image(systemName: "folder")
-                        Text("Open Workspace")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+            Button(action: onOpenWorkspace) {
+                HStack {
+                    Image(systemName: "folder")
+                    Text("Open...")
                 }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                
-                Button(action: onOpenFile) {
-                    HStack {
-                        Image(systemName: "doc")
-                        Text("Open File")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                }
-                .controlSize(.large)
-                .buttonStyle(.bordered)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

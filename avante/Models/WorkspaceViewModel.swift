@@ -15,12 +15,8 @@ class WorkspaceViewModel: ObservableObject {
     @Published var rootItem: FileItem?
     @Published var selectedItem: FileItem? {
         didSet {
-            if let newItem = selectedItem {
-                if !newItem.isFolder {
-                    self.selectedFileForEditor = newItem
-                } else {
-                    self.selectedFileForEditor = nil
-                }
+            if let item = selectedItem, !item.isFolder {
+                self.selectedFileForEditor = item
             } else {
                 self.selectedFileForEditor = nil
             }
@@ -58,35 +54,14 @@ class WorkspaceViewModel: ObservableObject {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleOpenFileNotification(_:)),
-            name: Notification.Name("com.carlosborne.avante.openFileFromFinder"),
+            name: .openFileFromFinder,
             object: nil
         )
     }
     
     deinit {
         securityScopedURL?.stopAccessingSecurityScopedResource()
-        // It's crucial to remove the observer when the object is deallocated.
-        NotificationCenter.default.removeObserver(self, name: Notification.Name("com.carlosborne.avante.openFileFromFinder"), object: nil)
-    }
-    
-    func save(document: AvanteDocument) {
-        let url = document.url
-        
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .prettyPrinted
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(document.state)
-            
-            try data.write(to: url, options: .atomic)
-            print("File saved successfully to \(url.lastPathComponent)")
-            
-            // After a successful save, the document is no longer dirty.
-            self.markDocumentAsClean(url: url)
-            
-        } catch {
-            print("Failed to save file \(url.lastPathComponent). Error: \(error)")
-        }
+        NotificationCenter.default.removeObserver(self, name: .openFileFromFinder, object: nil)
     }
     
     private func setupFileSystemMonitoring() {
@@ -100,13 +75,13 @@ class WorkspaceViewModel: ObservableObject {
     }
 
     func getDocument(for fileItem: FileItem) -> AvanteDocument {
-        let url = fileItem.url
-        
-        if let cachedDoc = documentCache[url] {
+        if let cachedDoc = documentCache[fileItem.url] {
+            print("Document for '\(fileItem.name)' found in cache.")
             return cachedDoc
         } else {
-            let newDoc = AvanteDocument(url: url)
-            documentCache[url] = newDoc
+            print("Loading document for '\(fileItem.name)' from disk.")
+            let newDoc = AvanteDocument(url: fileItem.url)
+            documentCache[fileItem.url] = newDoc
             return newDoc
         }
     }
@@ -134,7 +109,6 @@ class WorkspaceViewModel: ObservableObject {
     func refreshFileTree() {
         print("Refreshing file tree...")
         guard let root = rootItem else { return }
-        let rootURL = root.url
         
         // Preserve the selection and expansion state before rebuilding the tree.
         let oldSelectionURL = selectedItem?.url
@@ -149,21 +123,17 @@ class WorkspaceViewModel: ObservableObject {
         }
         
         // Rebuild the file tree from scratch.
-        root.children = buildFileTree(from: rootURL, parent: root)
+        root.children = buildFileTree(from: root.url, parent: root)
         
         // Re-apply the preserved state to the new items.
         self.expandedItemURLs = expandedURLs
-        
-        // FIX: Correctly unwrap the optional URL and use it.
-        if let oldURL = oldSelectionURL {
-            selectFile(at: oldURL)
-        }
-        
+        if let oldURL = oldSelectionURL { selectFile(at: oldURL) }
         dirtyStates.keys.forEach { markDocumentAsDirty(url: $0) }
 
         objectWillChange.send()
     }
     
+    // ... other methods like openFileOrFolder, create, rename, delete, etc. remain the same ...
     func openFileOrFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -173,6 +143,7 @@ class WorkspaceViewModel: ObservableObject {
         panel.title = "Open File or Workspace"
         panel.prompt = "Open"
         
+        // Dynamically update the prompt based on selection
         class Delegate: NSObject, NSOpenSavePanelDelegate {
             weak var panel: NSOpenPanel?
             init(panel: NSOpenPanel) { self.panel = panel }
@@ -240,8 +211,8 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     func renameItem(_ item: FileItem, to newName: String) {
-        let oldURL = item.url
         self.isPerformingManualFileOperation = true
+        let oldURL = item.url
         let newURL = oldURL.deletingLastPathComponent().appendingPathComponent(newName)
         
         Task {
@@ -264,9 +235,9 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     func deleteItem(_ item: FileItem) {
-        let urlToDelete = item.url
         if selectedItem == item { selectedItem = nil }
         self.isPerformingManualFileOperation = true
+        let urlToDelete = item.url
         
         Task {
             do {
@@ -282,19 +253,15 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     func toggleExpansion(for item: FileItem) {
-        let url = item.url
         item.isExpanded.toggle()
         if item.isExpanded {
-            expandedItemURLs.insert(url)
-            if item.children?.isEmpty ?? true {
-                item.children = buildFileTree(from: url, parent: item)
-            }
+            expandedItemURLs.insert(item.url)
+            if item.children?.isEmpty ?? true { item.children = buildFileTree(from: item.url, parent: item) }
         } else {
-            expandedItemURLs.remove(url)
+            expandedItemURLs.remove(item.url)
         }
         objectWillChange.send()
     }
-    
     private func setWorkspace(url: URL) {
         securityScopedURL?.stopAccessingSecurityScopedResource()
         guard url.startAccessingSecurityScopedResource() else {
@@ -314,8 +281,6 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     private func setSingleFile(url: URL) {
-        print("🔄 Opening single file: \(url.lastPathComponent)")
-        
         securityScopedURL?.stopAccessingSecurityScopedResource()
         guard url.startAccessingSecurityScopedResource() else {
             print("Could not gain security access to file URL.")
@@ -326,9 +291,6 @@ class WorkspaceViewModel: ObservableObject {
         // Clear workspace bookmark when switching to single file mode
         UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.workspaceBookmark)
         
-        // Clear the document cache to ensure we load the new file fresh
-        documentCache.removeAll()
-        
         // Create a single file item and set it as the root
         let fileItem = FileItem(url: url)
         self.rootItem = fileItem
@@ -338,19 +300,7 @@ class WorkspaceViewModel: ObservableObject {
         // Stop file system monitoring since we're in single-file mode
         fileSystemMonitor.stopMonitoring()
         
-        // Force the UI to update by triggering objectWillChange
         objectWillChange.send()
-        
-        // Explicitly load the document to ensure the UI updates
-        let documentToLoad = getDocument(for: fileItem)
-        
-        // Post a notification to trigger the AnalysisController to load the document
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(
-                name: .loadDocument,
-                object: documentToLoad
-            )
-        }
     }
     
     private func buildFileTree(from url: URL, parent: FileItem?) -> [FileItem] {
@@ -361,10 +311,9 @@ class WorkspaceViewModel: ObservableObject {
                 let isDirectory = (try? itemUrl.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
                 if !isDirectory && itemUrl.pathExtension != "vnt" { continue }
                 let fileItem = FileItem(url: itemUrl); fileItem.parent = parent
-                let itemURL = fileItem.url
-                if fileItem.isFolder, expandedItemURLs.contains(itemURL) {
+                if fileItem.isFolder, expandedItemURLs.contains(itemUrl) {
                     fileItem.isExpanded = true
-                    fileItem.children = buildFileTree(from: itemURL, parent: fileItem)
+                    fileItem.children = buildFileTree(from: itemUrl, parent: fileItem)
                 }
                 items.append(fileItem)
             }
@@ -374,8 +323,8 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     private func determineParent(for item: FileItem?) -> FileItem {
-        guard let item = item, let root = rootItem else { return rootItem! }
-        return item.isFolder ? item : item.parent ?? root
+        guard let item = item else { return rootItem! }
+        return item.isFolder ? item : item.parent ?? rootItem!
     }
     
     private func createUniqueItem(in parent: FileItem, baseName: String, isFolder: Bool) async -> URL? {
@@ -486,14 +435,14 @@ class WorkspaceViewModel: ObservableObject {
     }
     
     private func saveLastOpenedFile(fileItem: FileItem?) {
+        // If the item is nil or it's a folder, remove the stored bookmark.
         guard let item = fileItem, !item.isFolder else {
             UserDefaults.standard.removeObject(forKey: UserDefaultsKeys.lastOpenedFileBookmark)
             return
         }
-        let url = item.url
         
         do {
-            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmarkData = try item.url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
             UserDefaults.standard.set(bookmarkData, forKey: UserDefaultsKeys.lastOpenedFileBookmark)
             print("Saved last opened file: \(item.name)")
         } catch {
@@ -518,6 +467,7 @@ class WorkspaceViewModel: ObservableObject {
                 return
             }
             
+            // Ensure the file is actually inside the current workspace before selecting it.
             guard let rootURL = self.rootItem?.url, url.path.hasPrefix(rootURL.path) else {
                 print("Last opened file is not within the current workspace.")
                 url.stopAccessingSecurityScopedResource()
@@ -528,6 +478,8 @@ class WorkspaceViewModel: ObservableObject {
             DispatchQueue.main.async {
                 print("Restoring last opened file: \(url.lastPathComponent)")
                 self.selectFile(at: url)
+                // It's good practice to stop accessing when done, but for a file
+                // that will be actively used, we can leave it. The OS will handle it.
             }
         } catch {
             print("Error restoring last opened file from bookmark: \(error)")
@@ -599,7 +551,6 @@ class WorkspaceViewModel: ObservableObject {
 
     func open(url: URL) {
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-        
         if isDirectory {
             setWorkspace(url: url)
         } else {
@@ -609,13 +560,16 @@ class WorkspaceViewModel: ObservableObject {
     
     // This method is called when the .openFileFromFinder notification is received.
     @objc private func handleOpenFileNotification(_ notification: Notification) {
-        guard let url = notification.object as? URL else { 
-            print("❌ Invalid URL in file open notification")
-            return 
-        }
+        guard let url = notification.object as? URL else { return }
         
-        // Call the existing open method to load the file/workspace.
-        self.open(url: url)
+        // When opening a .vnt file from Finder or outside the app, 
+        // just show the welcome view (same effect as Cmd+W)
+        if url.pathExtension.lowercased() == "vnt" {
+            self.clearSession()
+        } else {
+            // For non-.vnt files, call the existing open method to load the file/workspace.
+            self.open(url: url)
+        }
     }
 }
 
@@ -647,3 +601,4 @@ fileprivate class FileSystemMonitor {
     }
     deinit { stopMonitoring() }
 }
+
