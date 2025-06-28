@@ -113,25 +113,14 @@ struct AIAnalysisTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView,
               let layoutManager = textView.layoutManager as? HighlightingLayoutManager else { return }
 
-        // This block now correctly handles both text and selection updates together.
+        // This block is now only responsible for text updates.
         if textView.string != self.text {
             context.coordinator.isUpdatingFromModel = true
-            
-            // 1. Update the text content from the model.
             textView.string = self.text
-            
-            // 2. MOVED: Update the selection only when the text is being updated from the model.
-            // This restores the cursor correctly on undo/redo without interfering with typing.
-            if textView.selectedRange() != analysisController.textViewSelectionRange {
-                textView.selectedRange = analysisController.textViewSelectionRange
-            }
-            
             DispatchQueue.main.async {
                 context.coordinator.isUpdatingFromModel = false
             }
         }
-        
-        // REMOVED: The selection sync logic is no longer here.
         
         // Update analysis and highlight data
         let allEdits = analysisController.activeDocument?.state.analysisSessions.flatMap { $0.analyzedEdits } ?? []
@@ -180,6 +169,17 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 .sink { [weak self] in
                     print("Received focus signal. Making text view first responder.")
                     self?.textView?.window?.makeFirstResponder(self?.textView)
+                }
+                .store(in: &cancellables)
+            
+            controller.$textViewSelectionRange
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] newRange in
+                    // When the controller's selection changes, update the text view,
+                    // but only if the view isn't already correct. This prevents feedback loops.
+                    if self?.textView?.selectedRange() != newRange {
+                        self?.textView?.selectedRange = newRange
+                    }
                 }
                 .store(in: &cancellables)
         }
