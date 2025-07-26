@@ -35,6 +35,7 @@ fileprivate extension String {
 // Custom NSTextView subclass to handle mouse events correctly
 fileprivate class FocusAwareTextView: NSTextView {
     weak var analysisController: AnalysisController?
+    weak var coordinator: AIAnalysisTextView.Coordinator?
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -55,6 +56,26 @@ fileprivate class FocusAwareTextView: NSTextView {
         super.mouseExited(with: event)
         analysisController?.mouseDidExit()
     }
+    
+    override func keyDown(with event: NSEvent) {
+        // Handle Tab key or Right Arrow key to accept autocomplete suggestion
+        if coordinator?.currentSuggestionRange != nil && (event.keyCode == 48 || event.keyCode == 124) { // Tab key or Right Arrow
+            coordinator?.acceptAutocompleteSuggestion()
+            return
+        }
+        
+        // For any other key, clear the suggestion first
+        if coordinator?.currentSuggestionRange != nil {
+            coordinator?.clearAutocompleteSuggestion()
+            // Give the text storage a moment to update before processing the key
+            DispatchQueue.main.async {
+                super.keyDown(with: event)
+            }
+            return
+        }
+        
+        super.keyDown(with: event)
+    }
 }
 
 
@@ -67,6 +88,7 @@ struct AIAnalysisTextView: NSViewRepresentable {
         let textView = FocusAwareTextView()
         
         textView.analysisController = context.coordinator.controller
+        textView.coordinator = context.coordinator
         
         scrollView.hasVerticalScroller = true
         scrollView.borderType = .noBorder
@@ -174,6 +196,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
         // Sentence tracking for autocomplete
         var sentenceRanges: [NSRange] = []
         
+         // Autocomplete suggestion tracking
+        var currentSuggestionRange: NSRange?
+        var currentSuggestionText: String = ""
+        var autocompleteRequestId: UUID = UUID() // Track autocomplete requests
+        
         init(parent: AIAnalysisTextView, controller: AnalysisController) {
             self.parent = parent
             self.controller = controller
@@ -210,7 +237,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
                     let fullText = self.parent.text
                     let cursorPosition = textView.selectedRange().location
                     
-                    Autocomplete.autocomplete(fullText: fullText, cursorPosition: cursorPosition, sentenceRanges: self.sentenceRanges)
+                    // Generate a new request ID for this autocomplete request
+                    let requestId = UUID()
+                    self.autocompleteRequestId = requestId
+                    
+                    Autocomplete.autocomplete(fullText: fullText, cursorPosition: cursorPosition, sentenceRanges: self.sentenceRanges, coordinator: self, requestId: requestId)
                 }
                 .store(in: &cancellables)
         }
@@ -258,6 +289,13 @@ struct AIAnalysisTextView: NSViewRepresentable {
                     let afterRange = NSRange(location: afterLocation, length: fullRange.length - afterLocation)
                     textStorage.addAttribute(.foregroundColor, value: dimmedColor, range: afterRange)
                 }
+            }
+            
+            // Restore autocomplete suggestion color if there is one
+            if let suggestionRange = currentSuggestionRange,
+               suggestionRange.location >= 0,
+               NSMaxRange(suggestionRange) <= textStorage.length {
+                textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: suggestionRange)
             }
             
             textStorage.endEditing()
@@ -359,6 +397,157 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 let nsRange = NSRange(tokenRange, in: text)
                 sentenceRanges.append(nsRange)
                 return true
+            }
+        }
+        
+        // MARK: - Autocomplete Display
+        
+        func displayAutocompleteSuggestion(_ suggestion: String, at cursorPosition: Int, requestId: UUID) {
+            guard let textView = textView,
+                  let textStorage = textView.textStorage,
+                  !suggestion.isEmpty else { return }
+            
+            // Check if this request is still valid (user hasn't started typing again)
+            guard requestId == autocompleteRequestId else {
+                print("Autocomplete request \(requestId) is stale, ignoring suggestion")
+                return
+            }
+            
+            // Get the current cursor position from the text view
+            let currentCursorPosition = textView.selectedRange().location
+            
+            // Validate cursor position
+            guard currentCursorPosition >= 0,
+                  currentCursorPosition <= textStorage.length else {
+                print("Warning: Invalid cursor position \(currentCursorPosition) for text length \(textStorage.length)")
+                return
+            }
+            
+            print("Displaying suggestion '\(suggestion)' at cursor position \(currentCursorPosition), text length: \(textStorage.length)")
+            
+            // Clear any existing suggestion first
+            clearAutocompleteSuggestion()
+            
+            // Set flag to prevent processing this change as user input
+            isUpdatingFromModel = true
+            
+            // Begin editing to make this atomic
+            textStorage.beginEditing()
+            
+            // Check if we need to add a space before the suggestion
+            let needsSpace = currentCursorPosition > 0 && 
+                           !textStorage.string[textStorage.string.index(textStorage.string.startIndex, offsetBy: currentCursorPosition - 1)].isWhitespace
+            
+            // Prepare the text to insert (add space if needed)
+            let textToInsert = needsSpace ? " \(suggestion)" : suggestion
+            
+            // Insert the suggestion text AFTER the cursor position
+            let suggestionRange = NSRange(location: currentCursorPosition, length: 0)
+            textStorage.replaceCharacters(in: suggestionRange, with: textToInsert)
+            
+            // Apply accent color to make it appear as a suggestion
+            let suggestionColor = NSColor.controlAccentColor
+            let newSuggestionRange = NSRange(location: currentCursorPosition, length: textToInsert.count)
+            textStorage.addAttribute(.foregroundColor, value: suggestionColor, range: newSuggestionRange)
+            
+            // End editing to commit all changes atomically
+            textStorage.endEditing()
+            
+            // Track the suggestion
+            currentSuggestionRange = newSuggestionRange
+            currentSuggestionText = suggestion
+            
+            // Update the parent text binding
+            parent.text = textStorage.string
+            
+            // Keep cursor at original position (don't move it to the end)
+            textView.setSelectedRange(NSRange(location: currentCursorPosition, length: 0))
+            
+            // Reset the flag
+            DispatchQueue.main.async {
+                self.isUpdatingFromModel = false
+            }
+        }
+        
+        func clearAutocompleteSuggestion() {
+            guard let textView = textView,
+                  let textStorage = textView.textStorage,
+                  let suggestionRange = currentSuggestionRange else { return }
+            
+            // Validate the range is still valid
+            guard suggestionRange.location >= 0,
+                  NSMaxRange(suggestionRange) <= textStorage.length else {
+                print("Warning: Invalid suggestion range \(suggestionRange) for text length \(textStorage.length)")
+                // Clear tracking even if range is invalid
+                currentSuggestionRange = nil
+                currentSuggestionText = ""
+                return
+            }
+            
+            // Set flag to prevent processing this change as user input
+            isUpdatingFromModel = true
+            
+            // Begin editing to make this atomic
+            textStorage.beginEditing()
+            
+            // Remove the suggestion text
+            textStorage.replaceCharacters(in: suggestionRange, with: "")
+            
+            // End editing to commit all changes atomically
+            textStorage.endEditing()
+            
+            // Clear tracking
+            currentSuggestionRange = nil
+            currentSuggestionText = ""
+            
+            // Update the parent text binding
+            parent.text = textStorage.string
+            
+            // Reset the flag
+            DispatchQueue.main.async {
+                self.isUpdatingFromModel = false
+            }
+        }
+        
+        func acceptAutocompleteSuggestion() {
+            guard let textView = textView,
+                  let textStorage = textView.textStorage,
+                  let suggestionRange = currentSuggestionRange else { return }
+            
+            // Validate the range is still valid
+            guard suggestionRange.location >= 0,
+                  NSMaxRange(suggestionRange) <= textStorage.length else {
+                print("Warning: Invalid suggestion range \(suggestionRange) for text length \(textStorage.length)")
+                // Clear tracking even if range is invalid
+                currentSuggestionRange = nil
+                currentSuggestionText = ""
+                return
+            }
+            
+            // Set flag to prevent processing this change as user input
+            isUpdatingFromModel = true
+            
+            // Begin editing to make this atomic
+            textStorage.beginEditing()
+            
+            // Remove the secondary label color and set it to normal text color
+            textStorage.removeAttribute(.foregroundColor, range: suggestionRange)
+            textStorage.addAttribute(.foregroundColor, value: NSColor.labelColor, range: suggestionRange)
+            
+            // End editing to commit all changes atomically
+            textStorage.endEditing()
+            
+            // Move cursor to the end of the accepted text
+            let newCursorPosition = NSMaxRange(suggestionRange)
+            textView.setSelectedRange(NSRange(location: newCursorPosition, length: 0))
+            
+            // Clear tracking
+            currentSuggestionRange = nil
+            currentSuggestionText = ""
+            
+            // Reset the flag
+            DispatchQueue.main.async {
+                self.isUpdatingFromModel = false
             }
         }
         
