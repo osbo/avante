@@ -104,7 +104,7 @@ struct AIAnalysisTextView: NSViewRepresentable {
         
         context.coordinator.textView = textView
         context.coordinator.layoutManager = highlightingLayoutManager
-
+        
         return scrollView
     }
     
@@ -123,6 +123,11 @@ struct AIAnalysisTextView: NSViewRepresentable {
             DispatchQueue.main.async {
                 context.coordinator.isUpdatingFromModel = false
             }
+        }
+        
+        // Initialize sentence ranges for autocomplete if not already done
+        if context.coordinator.sentenceRanges.isEmpty {
+            context.coordinator.updateSentenceRanges(for: textView.string)
         }
         
         // Update analysis and highlight data
@@ -162,6 +167,13 @@ struct AIAnalysisTextView: NSViewRepresentable {
         
         private var cancellables = Set<AnyCancellable>()
         
+        // Autocomplete debouncing
+        private var editingDebounceSubject = PassthroughSubject<Void, Never>()
+        private var editingDebounceTimer: Timer?
+        
+        // Sentence tracking for autocomplete
+        var sentenceRanges: [NSRange] = []
+        
         init(parent: AIAnalysisTextView, controller: AnalysisController) {
             self.parent = parent
             self.controller = controller
@@ -179,6 +191,26 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 .sink { [weak self] rangeToSet in
                     // Directly set the text view's selection when the command is received.
                     self?.textView?.selectedRange = rangeToSet
+                }
+                .store(in: &cancellables)
+            
+            // Set up autocomplete debouncing
+            editingDebounceSubject
+                .debounce(for: .milliseconds(1000), scheduler: RunLoop.main)
+                .sink { [weak self] in
+                    guard let self = self,
+                          let textView = self.textView else { return }
+                    
+                    // Flush any remaining word buffer before autocomplete
+                    if !self.wordBuffer.isEmpty {
+                        let cursorPosition = textView.selectedRange().location
+                        self.flushWordBuffer(at: cursorPosition)
+                    }
+                    
+                    let fullText = self.parent.text
+                    let cursorPosition = textView.selectedRange().location
+                    
+                    Autocomplete.autocomplete(fullText: fullText, cursorPosition: cursorPosition, sentenceRanges: self.sentenceRanges)
                 }
                 .store(in: &cancellables)
         }
@@ -280,6 +312,12 @@ struct AIAnalysisTextView: NSViewRepresentable {
                     }
                 }
             }
+            
+            // Update sentence ranges for autocomplete
+            updateSentenceRanges(for: newText)
+            
+            // Trigger autocomplete debouncing
+            editingDebounceSubject.send()
         }
         
         private func flushWordBuffer(at separatorLocation: Int) {
@@ -308,5 +346,22 @@ struct AIAnalysisTextView: NSViewRepresentable {
             
             controller.queueForAnalysis(edit: edit)
         }
+        
+        // MARK: - Sentence Tracking
+        
+        func updateSentenceRanges(for text: String) {
+            let tokenizer = NLTokenizer(unit: .sentence)
+            tokenizer.string = text
+            
+            sentenceRanges.removeAll()
+            
+            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { tokenRange, _ in
+                let nsRange = NSRange(tokenRange, in: text)
+                sentenceRanges.append(nsRange)
+                return true
+            }
+        }
+        
+
     }
 }
