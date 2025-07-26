@@ -76,6 +76,11 @@ fileprivate class FocusAwareTextView: NSTextView {
         
         super.keyDown(with: event)
     }
+    
+    override func paste(_ sender: Any?) {
+        // Always paste as plain text to strip formatting
+        pasteAsPlainText(sender)
+    }
 }
 
 
@@ -291,11 +296,13 @@ struct AIAnalysisTextView: NSViewRepresentable {
                 }
             }
             
-            // Restore autocomplete suggestion color if there is one
+            // Restore autocomplete suggestion color and font if there is one
             if let suggestionRange = currentSuggestionRange,
                suggestionRange.location >= 0,
                NSMaxRange(suggestionRange) <= textStorage.length {
+                let standardFont = NSFont(name: "SF Pro Text", size: 16) ?? NSFont.systemFont(ofSize: 16)
                 textStorage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: suggestionRange)
+                textStorage.addAttribute(.font, value: standardFont, range: suggestionRange)
             }
             
             textStorage.endEditing()
@@ -445,10 +452,19 @@ struct AIAnalysisTextView: NSViewRepresentable {
             let suggestionRange = NSRange(location: currentCursorPosition, length: 0)
             textStorage.replaceCharacters(in: suggestionRange, with: textToInsert)
             
-            // Apply accent color to make it appear as a suggestion
+            // Apply accent color and force standard font attributes for the suggestion
             let suggestionColor = NSColor.controlAccentColor
+            let standardFont = NSFont(name: "SF Pro Text", size: 16) ?? NSFont.systemFont(ofSize: 16)
             let newSuggestionRange = NSRange(location: currentCursorPosition, length: textToInsert.count)
+            
+            // Force all text attributes to be consistent
             textStorage.addAttribute(.foregroundColor, value: suggestionColor, range: newSuggestionRange)
+            textStorage.addAttribute(.font, value: standardFont, range: newSuggestionRange)
+            
+            // Ensure paragraph style is consistent
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.lineSpacing = 8
+            textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: newSuggestionRange)
             
             // End editing to commit all changes atomically
             textStorage.endEditing()
