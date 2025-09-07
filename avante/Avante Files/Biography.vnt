@@ -1,0 +1,855 @@
+{
+  "documentId" : "7A6DE067-A256-4300-B6CB-7B8D1F193221",
+  "fullText" : "Carl Osborne (’28) is a student from Seattle, Washington, studying Artificial Intelligence and Mechanical Engineering (Courses 6-4 and 2). Driven by a passion for complex problem-solving and simulation, Carl is a member of the men's lightweight rowing team and is also concentrating in Literature. His interests range from backpacking and teaching swim lessons to reading ancient Latin and parsing runway fashion. He is a fan of sunrises, Radiohead, and Fantastic Mr. Fox.",
+  "selectionRange" : {
+    "lowerBound" : 56,
+    "upperBound" : 56
+  },
+  "analyses" : [
+    {
+      "id" : "C82C8CA9-1D22-46D9-A4BE-76FBA34AC6AC",
+      "metrics" : {
+        "novelty" : 0.5,
+        "flow" : 0.85,
+        "clarity" : 1
+      },
+      "range" : {
+        "lowerBound" : 0,
+        "upperBound" : 4
+      },
+      "timestamp" : "2025-07-03T22:22:58Z"
+    },
+    {
+      "id" : "C7FE4427-5CE1-43DC-805D-CABD706F19A1",
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.3,
+        "flow" : 0.65
+      },
+      "range" : {
+        "lowerBound" : 5,
+        "upperBound" : 12
+      },
+      "timestamp" : "2025-07-03T22:22:59Z"
+    },
+    {
+      "id" : "D9A016D6-9901-4831-A1F5-7ECEE76EFFCA",
+      "metrics" : {
+        "novelty" : 0.4,
+        "clarity" : 1,
+        "flow" : 0.7
+      },
+      "range" : {
+        "lowerBound" : 15,
+        "upperBound" : 17
+      },
+      "timestamp" : "2025-07-03T22:23:00Z"
+    },
+    {
+      "id" : "3622A5A8-3FD6-46B4-9A33-343CD79A944D",
+      "metrics" : {
+        "novelty" : 0.2,
+        "clarity" : 1,
+        "flow" : 0.8
+      },
+      "range" : {
+        "upperBound" : 21,
+        "lowerBound" : 19
+      },
+      "timestamp" : "2025-07-03T22:23:02Z"
+    },
+    {
+      "id" : "EECC6C11-E082-45BC-953F-8B5F59C7EDA1",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.9,
+        "novelty" : 0.1
+      },
+      "range" : {
+        "upperBound" : 23,
+        "lowerBound" : 22
+      },
+      "timestamp" : "2025-07-03T22:23:04Z"
+    },
+    {
+      "id" : "4522D38A-B0FD-4399-BA53-C8CE6907B0BF",
+      "metrics" : {
+        "novelty" : 0.3,
+        "clarity" : 1,
+        "flow" : 0.7
+      },
+      "range" : {
+        "upperBound" : 31,
+        "lowerBound" : 24
+      },
+      "timestamp" : "2025-07-03T22:23:07Z"
+    },
+    {
+      "range" : {
+        "lowerBound" : 32,
+        "upperBound" : 36
+      },
+      "metrics" : {
+        "novelty" : 0.4,
+        "flow" : 0.6,
+        "clarity" : 1
+      },
+      "timestamp" : "2025-07-03T22:23:10Z",
+      "id" : "A6158446-4465-4260-A908-D7B32BD35725"
+    },
+    {
+      "range" : {
+        "upperBound" : 44,
+        "lowerBound" : 37
+      },
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.5,
+        "flow" : 0.7
+      },
+      "timestamp" : "2025-07-03T22:23:14Z",
+      "id" : "7AD99FDE-3E1B-44EC-88B0-E6C5214E8CFC"
+    },
+    {
+      "range" : {
+        "upperBound" : 56,
+        "lowerBound" : 55
+      },
+      "metrics" : {
+        "novelty" : 0,
+        "flow" : 0,
+        "clarity" : 0
+      },
+      "timestamp" : "2025-07-03T22:42:29Z",
+      "id" : "7AC4E865-8984-4CB4-AC1A-045AA857A9A9"
+    },
+    {
+      "id" : "FF69F408-A989-4A46-8A31-9B236DDA8B6B",
+      "metrics" : {
+        "flow" : 0.75,
+        "clarity" : 1,
+        "novelty" : 0.55
+      },
+      "timestamp" : "2025-07-03T22:23:18Z",
+      "range" : {
+        "upperBound" : 77,
+        "lowerBound" : 67
+      }
+    },
+    {
+      "id" : "68A5EB12-CACD-4742-A39B-A14E9AF02CE6",
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.6,
+        "flow" : 0.8
+      },
+      "timestamp" : "2025-07-03T22:23:19Z",
+      "range" : {
+        "upperBound" : 90,
+        "lowerBound" : 78
+      }
+    },
+    {
+      "id" : "1820095F-0A9F-49ED-A6BF-9963CF42A002",
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.4,
+        "flow" : 0.7
+      },
+      "timestamp" : "2025-07-03T22:23:21Z",
+      "range" : {
+        "upperBound" : 94,
+        "lowerBound" : 91
+      }
+    },
+    {
+      "id" : "B32C0B15-E51E-4641-A885-29BF88C5FC0D",
+      "metrics" : {
+        "novelty" : 0.5,
+        "clarity" : 1,
+        "flow" : 0.6
+      },
+      "timestamp" : "2025-07-03T22:23:22Z",
+      "range" : {
+        "upperBound" : 105,
+        "lowerBound" : 95
+      }
+    },
+    {
+      "id" : "DBB61224-4FF3-4B23-AA34-8A2E01785021",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.75,
+        "novelty" : 0.65
+      },
+      "timestamp" : "2025-07-03T22:23:25Z",
+      "range" : {
+        "upperBound" : 117,
+        "lowerBound" : 106
+      }
+    },
+    {
+      "id" : "29E0DCBC-51D9-4984-B72F-3257999EC5B4",
+      "metrics" : {
+        "clarity" : 0.75,
+        "flow" : 0.7,
+        "novelty" : 0.65
+      },
+      "timestamp" : "2025-07-03T22:26:17Z",
+      "range" : {
+        "lowerBound" : 119,
+        "upperBound" : 126
+      }
+    },
+    {
+      "id" : "34FABF37-8072-4705-B876-BFC28A834F91",
+      "metrics" : {
+        "clarity" : 0.8,
+        "flow" : 0.65,
+        "novelty" : 0.55
+      },
+      "timestamp" : "2025-07-03T22:26:19Z",
+      "range" : {
+        "upperBound" : 130,
+        "lowerBound" : 127
+      }
+    },
+    {
+      "id" : "BC2CF8D8-DADD-408D-9D4D-FDEE89E4DCE6",
+      "metrics" : {
+        "novelty" : 0.2,
+        "flow" : 0.8,
+        "clarity" : 0.9
+      },
+      "timestamp" : "2025-07-03T22:26:20Z",
+      "range" : {
+        "upperBound" : 134,
+        "lowerBound" : 131
+      }
+    },
+    {
+      "id" : "5842FB97-88F1-4079-BA50-20F86189996E",
+      "metrics" : {
+        "clarity" : 0.7,
+        "novelty" : 0.4,
+        "flow" : 0.6
+      },
+      "timestamp" : "2025-07-03T22:26:22Z",
+      "range" : {
+        "lowerBound" : 135,
+        "upperBound" : 136
+      }
+    },
+    {
+      "id" : "5319DD64-4E04-49E5-A4C0-ED749DDD8039",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.4,
+        "novelty" : 0.25
+      },
+      "timestamp" : "2025-07-03T22:23:31Z",
+      "range" : {
+        "lowerBound" : 140,
+        "upperBound" : 142
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:35Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.55,
+        "novelty" : 0.45
+      },
+      "id" : "9A206DF5-12BD-483D-BCFF-0E0EB27324F3",
+      "range" : {
+        "lowerBound" : 143,
+        "upperBound" : 149
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:38Z",
+      "metrics" : {
+        "flow" : 0.5,
+        "clarity" : 0.75,
+        "novelty" : 0.25
+      },
+      "id" : "CEC4AB77-6BEF-478B-8B6B-50BBE53D42B3",
+      "range" : {
+        "upperBound" : 154,
+        "lowerBound" : 150
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:39Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.8,
+        "novelty" : 0.5
+      },
+      "id" : "C4DC10D9-8267-4FB2-A4AD-47C473FE0F13",
+      "range" : {
+        "upperBound" : 162,
+        "lowerBound" : 155
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:40Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.9,
+        "novelty" : 0.6
+      },
+      "id" : "51D7E2DE-69CA-4FDA-825C-152A1582E87E",
+      "range" : {
+        "lowerBound" : 163,
+        "upperBound" : 166
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:41Z",
+      "metrics" : {
+        "flow" : 0.8,
+        "novelty" : 0.7,
+        "clarity" : 1
+      },
+      "id" : "7B4BF538-FB2B-44F6-B497-E57C255D3775",
+      "range" : {
+        "upperBound" : 174,
+        "lowerBound" : 167
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:43Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.9,
+        "novelty" : 0.6
+      },
+      "id" : "4E2D1718-BE8A-4539-98F5-533882BE2033",
+      "range" : {
+        "upperBound" : 182,
+        "lowerBound" : 175
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:45Z",
+      "metrics" : {
+        "flow" : 0.85,
+        "novelty" : 0.7,
+        "clarity" : 1
+      },
+      "id" : "45C85596-4061-4F94-B1B4-C974F3E862BF",
+      "range" : {
+        "lowerBound" : 183,
+        "upperBound" : 190
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:48Z",
+      "metrics" : {
+        "novelty" : 0.4,
+        "clarity" : 1,
+        "flow" : 0.7
+      },
+      "id" : "F6083265-E395-4FBC-9648-844897E2D72D",
+      "range" : {
+        "lowerBound" : 191,
+        "upperBound" : 194
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:51Z",
+      "metrics" : {
+        "flow" : 0.8,
+        "novelty" : 0.6,
+        "clarity" : 1
+      },
+      "id" : "2A70EB89-4693-4375-A905-BE9ED9C3FDFC",
+      "range" : {
+        "upperBound" : 205,
+        "lowerBound" : 195
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:55Z",
+      "metrics" : {
+        "flow" : 0.9,
+        "novelty" : 0.5,
+        "clarity" : 1
+      },
+      "id" : "39B48F56-FF8C-44C0-A25A-F70E08476454",
+      "range" : {
+        "lowerBound" : 207,
+        "upperBound" : 209
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:58Z",
+      "metrics" : {
+        "flow" : 0.75,
+        "clarity" : 1,
+        "novelty" : 0.55
+      },
+      "id" : "3DE2EDC1-A278-41F2-A64B-8C420A3EA238",
+      "range" : {
+        "lowerBound" : 210,
+        "upperBound" : 218
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:23:59Z",
+      "metrics" : {
+        "flow" : 1,
+        "novelty" : 0.5,
+        "clarity" : 1
+      },
+      "id" : "06E13E45-5D4B-4DB1-9DA9-A029992BED2F",
+      "range" : {
+        "upperBound" : 221,
+        "lowerBound" : 219
+      }
+    },
+    {
+      "metrics" : {
+        "novelty" : 0.75,
+        "clarity" : 1,
+        "flow" : 1
+      },
+      "range" : {
+        "upperBound" : 225,
+        "lowerBound" : 222
+      },
+      "timestamp" : "2025-07-03T22:24:00Z",
+      "id" : "5B8D91F0-C084-4DF5-860E-712A5C740076"
+    },
+    {
+      "metrics" : {
+        "flow" : 0.7,
+        "novelty" : 0.65,
+        "clarity" : 1
+      },
+      "range" : {
+        "upperBound" : 243,
+        "lowerBound" : 232
+      },
+      "timestamp" : "2025-07-03T22:24:03Z",
+      "id" : "34E5398B-6BF4-4B99-95B4-22F5A8A8859D"
+    },
+    {
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.65,
+        "novelty" : 0.6
+      },
+      "range" : {
+        "lowerBound" : 244,
+        "upperBound" : 250
+      },
+      "timestamp" : "2025-07-03T22:24:05Z",
+      "id" : "3E3CB21B-5C1B-4C82-93C9-A8E44180A796"
+    },
+    {
+      "metrics" : {
+        "novelty" : 0.55,
+        "clarity" : 1,
+        "flow" : 0.6
+      },
+      "range" : {
+        "lowerBound" : 251,
+        "upperBound" : 255
+      },
+      "timestamp" : "2025-07-03T22:24:07Z",
+      "id" : "E954914A-1A7F-4F6A-91FA-7B0F4BE40F03"
+    },
+    {
+      "metrics" : {
+        "flow" : 0.65,
+        "novelty" : 0.6,
+        "clarity" : 1
+      },
+      "range" : {
+        "lowerBound" : 257,
+        "upperBound" : 260
+      },
+      "timestamp" : "2025-07-03T22:24:11Z",
+      "id" : "1267D911-0829-458A-A19B-0D942C41ACF6"
+    },
+    {
+      "metrics" : {
+        "novelty" : 0.5,
+        "flow" : 0.7,
+        "clarity" : 1
+      },
+      "range" : {
+        "lowerBound" : 261,
+        "upperBound" : 263
+      },
+      "timestamp" : "2025-07-03T22:24:15Z",
+      "id" : "B81822EE-35CC-437E-A383-FA5CA8EEA716"
+    },
+    {
+      "metrics" : {
+        "novelty" : 0.6,
+        "clarity" : 0.8,
+        "flow" : 0.7
+      },
+      "range" : {
+        "upperBound" : 282,
+        "lowerBound" : 264
+      },
+      "timestamp" : "2025-07-03T22:24:17Z",
+      "id" : "E5645A4F-9E04-4D7D-A7C5-AC51C4CF42E6"
+    },
+    {
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 1,
+        "novelty" : 0
+      },
+      "range" : {
+        "lowerBound" : 283,
+        "upperBound" : 285
+      },
+      "timestamp" : "2025-07-03T22:24:18Z",
+      "id" : "0B0C2B9E-8285-4A9F-B6FA-4D1ECDC3D0F0"
+    },
+    {
+      "metrics" : {
+        "novelty" : 0.8,
+        "clarity" : 1,
+        "flow" : 1
+      },
+      "range" : {
+        "lowerBound" : 286,
+        "upperBound" : 296
+      },
+      "timestamp" : "2025-07-03T22:24:19Z",
+      "id" : "1539229B-E667-4F04-A745-D878417351DF"
+    },
+    {
+      "metrics" : {
+        "flow" : 1,
+        "clarity" : 1,
+        "novelty" : 0
+      },
+      "range" : {
+        "lowerBound" : 298,
+        "upperBound" : 301
+      },
+      "timestamp" : "2025-07-03T22:24:20Z",
+      "id" : "504FF205-4C81-47FB-BB48-1B787C2CDA97"
+    },
+    {
+      "metrics" : {
+        "flow" : 1,
+        "clarity" : 1,
+        "novelty" : 0.6
+      },
+      "range" : {
+        "lowerBound" : 302,
+        "upperBound" : 311
+      },
+      "timestamp" : "2025-07-03T22:24:22Z",
+      "id" : "3A63F7FD-A5FF-4E7A-83B7-7866188E9351"
+    },
+    {
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.8,
+        "novelty" : 0.5
+      },
+      "range" : {
+        "lowerBound" : 312,
+        "upperBound" : 317
+      },
+      "timestamp" : "2025-07-03T22:24:25Z",
+      "id" : "872D7655-F3A8-4216-BC97-D43E73C49746"
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:27Z",
+      "range" : {
+        "lowerBound" : 318,
+        "upperBound" : 322
+      },
+      "id" : "09CEEE00-245A-4500-8777-CC0126F5A8F5",
+      "metrics" : {
+        "novelty" : 0,
+        "clarity" : 1,
+        "flow" : 1
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:31Z",
+      "range" : {
+        "upperBound" : 334,
+        "lowerBound" : 323
+      },
+      "id" : "B44FA750-2516-4176-B7BD-E5A56C25249A",
+      "metrics" : {
+        "clarity" : 0.9,
+        "flow" : 0.8,
+        "novelty" : 0.7
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:34Z",
+      "range" : {
+        "upperBound" : 338,
+        "lowerBound" : 335
+      },
+      "id" : "3222183B-EEDD-4072-8A94-9AE4888F2E61",
+      "metrics" : {
+        "flow" : 1,
+        "novelty" : 0,
+        "clarity" : 1
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:37Z",
+      "range" : {
+        "upperBound" : 352,
+        "lowerBound" : 339
+      },
+      "id" : "0EA86338-C6AA-4A02-9ACF-B2B1132944D8",
+      "metrics" : {
+        "novelty" : 0.7,
+        "clarity" : 0.85,
+        "flow" : 0.75
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:38Z",
+      "range" : {
+        "lowerBound" : 353,
+        "upperBound" : 360
+      },
+      "id" : "819090E5-AE41-4847-81A0-C82DE762C76E",
+      "metrics" : {
+        "flow" : 0.65,
+        "clarity" : 0.85,
+        "novelty" : 0.55
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:39Z",
+      "range" : {
+        "lowerBound" : 361,
+        "upperBound" : 363
+      },
+      "id" : "76743B62-0118-47E1-A048-F3CB4AA782BD",
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.35,
+        "flow" : 0.5
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:40Z",
+      "range" : {
+        "upperBound" : 371,
+        "lowerBound" : 364
+      },
+      "id" : "C8EECC66-35AE-45DB-973D-A87759D0DBA1",
+      "metrics" : {
+        "novelty" : 0.4,
+        "clarity" : 1,
+        "flow" : 0.65
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:42Z",
+      "range" : {
+        "lowerBound" : 372,
+        "upperBound" : 379
+      },
+      "id" : "8ABF4178-1BEC-47DD-88C8-6DC41E0D8071",
+      "metrics" : {
+        "novelty" : 0.6,
+        "clarity" : 1,
+        "flow" : 0.7
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:45Z",
+      "range" : {
+        "upperBound" : 385,
+        "lowerBound" : 380
+      },
+      "id" : "918B266F-BEF2-485C-A407-CCEC732C2058",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.55,
+        "novelty" : 0.55
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:47Z",
+      "range" : {
+        "lowerBound" : 386,
+        "upperBound" : 389
+      },
+      "id" : "24E62A4D-8147-4601-8413-7B37DDCEFEF9",
+      "metrics" : {
+        "novelty" : 0.25,
+        "flow" : 0.6,
+        "clarity" : 1
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:50Z",
+      "range" : {
+        "lowerBound" : 390,
+        "upperBound" : 397
+      },
+      "id" : "82AC1D18-B75A-4B78-9DB7-1E7C0C82445D",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 0.5,
+        "novelty" : 0.4
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:54Z",
+      "range" : {
+        "lowerBound" : 398,
+        "upperBound" : 404
+      },
+      "id" : "2DF01BC5-64FD-4835-8225-5C3EB6BFF259",
+      "metrics" : {
+        "novelty" : 0.35,
+        "flow" : 0.65,
+        "clarity" : 1
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:57Z",
+      "metrics" : {
+        "novelty" : 0.65,
+        "clarity" : 0.8,
+        "flow" : 0.75
+      },
+      "id" : "C4CECFA3-130C-45F0-A660-36363D04AFDF",
+      "range" : {
+        "upperBound" : 416,
+        "lowerBound" : 405
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:58Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 1,
+        "novelty" : 0
+      },
+      "id" : "036C6422-3978-4CF6-88E2-E23909C23754",
+      "range" : {
+        "upperBound" : 419,
+        "lowerBound" : 417
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:24:59Z",
+      "metrics" : {
+        "flow" : 1,
+        "novelty" : 0,
+        "clarity" : 1
+      },
+      "id" : "5800AF79-7C6E-4D34-BB24-EF1757EA8DC2",
+      "range" : {
+        "upperBound" : 421,
+        "lowerBound" : 420
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:00Z",
+      "metrics" : {
+        "novelty" : 0.5,
+        "flow" : 1,
+        "clarity" : 1
+      },
+      "id" : "222FE383-8BD1-448B-86DE-9414B3D0685A",
+      "range" : {
+        "upperBound" : 425,
+        "lowerBound" : 422
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:02Z",
+      "metrics" : {
+        "novelty" : 0.5,
+        "clarity" : 1,
+        "flow" : 1
+      },
+      "id" : "2F1E4EE0-C409-443A-B2A7-A1063237E017",
+      "range" : {
+        "lowerBound" : 426,
+        "upperBound" : 428
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:04Z",
+      "metrics" : {
+        "flow" : 1,
+        "clarity" : 1,
+        "novelty" : 0.75
+      },
+      "id" : "4B366518-3ED7-40AA-ACF2-F3A85226CCFF",
+      "range" : {
+        "upperBound" : 437,
+        "lowerBound" : 429
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:07Z",
+      "metrics" : {
+        "novelty" : 0.8,
+        "clarity" : 1,
+        "flow" : 1
+      },
+      "id" : "D89FEAD3-90B9-4854-ABD3-8BF910970C9E",
+      "range" : {
+        "lowerBound" : 439,
+        "upperBound" : 448
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:10Z",
+      "metrics" : {
+        "clarity" : 1,
+        "flow" : 1,
+        "novelty" : 0.5
+      },
+      "id" : "E796E119-1A7C-4164-9AC5-F510495CDD2F",
+      "range" : {
+        "lowerBound" : 450,
+        "upperBound" : 453
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:14Z",
+      "metrics" : {
+        "clarity" : 1,
+        "novelty" : 0.65,
+        "flow" : 1
+      },
+      "id" : "A31EAB8E-A935-45DA-9F44-987F06ADF968",
+      "range" : {
+        "lowerBound" : 454,
+        "upperBound" : 463
+      }
+    },
+    {
+      "timestamp" : "2025-07-03T22:25:17Z",
+      "metrics" : {
+        "clarity" : 0.9,
+        "flow" : 0.8,
+        "novelty" : 0.85
+      },
+      "id" : "0F1A719D-EF36-4018-ACF8-C2E230D378C9",
+      "range" : {
+        "upperBound" : 471,
+        "lowerBound" : 464
+      }
+    }
+  ]
+}
