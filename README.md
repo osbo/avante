@@ -67,10 +67,6 @@ The application implements a novel approach to handling large documents by break
 - **Background Processing**: Non-blocking analysis operations
 - **Smart Caching**: Reduces redundant computations
 
-## Screenshots
-
-*Screenshots will be added here once provided*
-
 ## Project Goals
 
 This project demonstrates:
